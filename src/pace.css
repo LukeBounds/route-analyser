@@ -1,0 +1,369 @@
+#pace-chart,
+#speed-chart {
+  height: 260px;
+}
+
+#pace-chart[hidden],
+#speed-chart[hidden] {
+  display: none;
+}
+
+.vam-guides {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+  color: #667281;
+  font-size: 0.9rem;
+}
+
+.prediction {
+  margin: 24px 0;
+  padding: 20px 24px;
+  background: #fff;
+  border: 1px solid #dce1e7;
+  border-radius: 14px;
+}
+
+.prediction h2 {
+  margin: 0;
+  font-size: 2rem;
+}
+
+.prediction-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: end;
+}
+
+.prediction-head > p {
+  max-width: 440px;
+  margin: 0;
+  color: #667281;
+  font-size: .9rem;
+  line-height: 1.45;
+}
+
+.result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+}
+
+.analysis-curve-control {
+  display: grid;
+  gap: 4px;
+  min-width: 180px;
+  color: #667281;
+  font-size: .78rem;
+  font-weight: 700;
+}
+
+.analysis-curve-control select {
+  min-height: 38px;
+}
+
+.section-toggle {
+  width: 22px;
+  height: 22px;
+  margin-right: 5px;
+  padding: 0;
+  border-radius: 5px;
+  background: #e7edf4;
+  color: #34465d;
+  font-size: .85rem;
+  line-height: 1;
+}
+
+.activity-input small {
+  color: #667281;
+  font-size: .78rem;
+  font-weight: 500;
+}
+
+.pace-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.curve-library {
+  display: grid;
+  grid-template-columns: minmax(180px, .8fr) minmax(220px, 1.2fr);
+  gap: 12px 16px;
+  margin: 20px 0 24px;
+  padding: 16px;
+  border: 1px solid #dce1e7;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.curve-library > label {
+  display: grid;
+  gap: 6px;
+  color: #34465d;
+  font-size: .85rem;
+  font-weight: 700;
+}
+
+.curve-library-actions {
+  display: flex;
+  flex-wrap: wrap;
+  grid-column: 1 / -1;
+  gap: 8px;
+}
+
+.curve-library .file-button {
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+  padding: 10px 15px;
+  border-radius: 8px;
+  background: #34465d;
+  color: #fff;
+  cursor: pointer;
+  font-size: .9rem;
+  font-weight: 700;
+}
+
+.curve-library .file-button input {
+  display: none;
+}
+
+#pace-library-status {
+  grid-column: 1 / -1;
+  min-height: 1.2em;
+  margin: 0;
+  color: #667281;
+  font-size: .85rem;
+}
+
+.curve-comparison {
+  margin: 0 0 24px;
+  padding: 14px 16px 16px;
+  border: 1px solid #dce1e7;
+  border-radius: 10px;
+}
+
+.curve-comparison legend {
+  padding: 0 6px;
+  color: #34465d;
+  font-weight: 750;
+}
+
+.curve-comparison > p {
+  margin: 0 0 12px;
+  color: #667281;
+  font-size: .86rem;
+}
+
+#curve-comparison-list,
+.chart-series-controls,
+#curve-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+#curve-comparison-list label,
+.chart-series-controls label,
+#curve-chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: .86rem;
+}
+
+.chart-series-controls {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #e4e8ed;
+  color: #34465d;
+  font-weight: 700;
+}
+
+.curve-swatch,
+#curve-chart-legend i {
+  width: 18px;
+  height: 4px;
+  border-radius: 3px;
+  background: var(--curve-color);
+}
+
+#curve-chart-legend {
+  margin-top: 12px;
+  color: #667281;
+}
+
+#curve-chart-legend .line-style i {
+  background: #64748b;
+}
+
+#curve-chart-legend .line-style.dashed i {
+  height: 0;
+  border-top: 2px dashed #64748b;
+  border-radius: 0;
+  background: transparent;
+}
+
+#pace-chart-heading,
+#speed-chart {
+  margin-top: 24px;
+}
+
+.controls.settings-groups {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 18px;
+}
+
+.settings-group {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px 16px;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid #dce1e7;
+  border-radius: 10px;
+}
+
+.settings-group legend {
+  padding: 0 6px;
+  color: #34465d;
+  font-size: .82rem;
+  font-weight: 750;
+}
+
+.settings-group label {
+  display: grid;
+  gap: 7px;
+  align-content: start;
+  font-size: .9rem;
+  font-weight: 650;
+}
+
+.settings-group input {
+  width: 100%;
+}
+
+.analysis-divider {
+  margin: 48px 0 0;
+  padding-top: 28px;
+  border-top: 1px solid #dce1e7;
+}
+
+.waypoint-note {
+  margin: 8px 0 18px;
+  color: #667281;
+  font-size: .9rem;
+  line-height: 1.45;
+}
+
+#waypoints h3,
+#waypoint-segments h3,
+#waypoint-segments > p {
+  margin-left: 18px;
+  margin-right: 18px;
+}
+
+#waypoints summary {
+  margin: 18px;
+  color: #34465d;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+#waypoints details[open] summary {
+  margin-bottom: 14px;
+}
+
+#waypoints h3,
+#waypoint-segments h3 {
+  margin-top: 18px;
+}
+
+.activity-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.activity-stats article {
+  padding: 12px;
+  border-radius: 8px;
+  background: #f4f7fb;
+}
+
+.activity-stats b,
+.activity-stats span {
+  display: block;
+}
+
+.activity-stats span,
+.calibration p {
+  color: #667281;
+  font-size: .85rem;
+}
+
+#activity-chart {
+  height: 250px;
+  margin: 14px 0 4px;
+}
+
+#activity-gradient-chart {
+  height: 250px;
+  margin: 10px 0 4px;
+}
+
+.calibration {
+  margin-top: 18px;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border-radius: 8px;
+}
+
+.calibration summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+@media (max-width: 760px) {
+  .curve-library {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-group {
+    grid-template-columns: 1fr;
+  }
+
+  .activity-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .prediction-head {
+    align-items: start;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .result-actions {
+    width: 100%;
+  }
+
+  .result-actions button {
+    flex: 1;
+  }
+}
+
+@media (max-width: 760px) {
+  #pace-chart,
+  #speed-chart {
+    height: 240px;
+  }
+}
