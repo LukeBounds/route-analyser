@@ -3,6 +3,32 @@ export type NumericBounds = {
     max: number;
 };
 
+export type ChartTheme = {
+    axis: string;
+    grid: string;
+    text: string;
+    zero: string;
+    tooltipBackground: string;
+    tooltipText: string;
+    markerFill: string;
+    hover: string;
+};
+
+function chartTheme(canvas: HTMLCanvasElement): ChartTheme {
+    const style = getComputedStyle(canvas);
+    const colour = (property: string, fallback: string) => style.getPropertyValue(property).trim() || fallback;
+    return {
+        axis: colour('--chart-axis', '#cbd3db'),
+        grid: colour('--chart-grid', 'rgba(148,163,184,.35)'),
+        text: colour('--chart-text', '#667281'),
+        zero: colour('--chart-zero', '#64748b'),
+        tooltipBackground: colour('--chart-tooltip-background', 'rgba(17,24,39,.92)'),
+        tooltipText: colour('--chart-tooltip-text', '#fff'),
+        markerFill: colour('--chart-marker-fill', '#f8fafc'),
+        hover: colour('--chart-hover', '#111827'),
+    };
+}
+
 export function numericBounds<T>(values: Iterable<T>, valueOf: (value: T) => number): NumericBounds | null {
     let min = Infinity;
     let max = -Infinity;
@@ -38,7 +64,7 @@ export function prepareCanvas(canvas: HTMLCanvasElement) {
     canvas.height = Math.max(1, Math.round(rect.height * ratio));
     const context = canvas.getContext('2d')!;
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
-    return { context, width: rect.width, height: rect.height };
+    return { context, width: rect.width, height: rect.height, theme: chartTheme(canvas) };
 }
 
 export function widestText(context: CanvasRenderingContext2D, labels: Iterable<string>) {

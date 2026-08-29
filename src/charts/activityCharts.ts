@@ -28,7 +28,7 @@ export function drawActivityComparisonChart(options: {
     const { canvas, routePoints, cumulativePrediction, activity, predictedStart, predictedEnd, formatDuration, formatDistance } = options;
     if (activity.length < 2)
         return;
-    const { context, width, height } = prepareCanvas(canvas);
+    const { context, width, height, theme } = prepareCanvas(canvas);
     const left = 52;
     const right = 16;
     const top = 18;
@@ -41,18 +41,18 @@ export function drawActivityComparisonChart(options: {
     const X = (distance: number) => left + (distance - start) / Math.max(1, end - start) * (width - left - right);
     const Y = (seconds: number) => top + (maxTime * 1.08 - seconds) / (maxTime * 1.08) * (height - top - bottom);
     context.clearRect(0, 0, width, height);
-    context.strokeStyle = '#cbd3db';
+    context.strokeStyle = theme.axis;
     context.beginPath();
     context.moveTo(left, top);
     context.lineTo(left, height - bottom);
     context.lineTo(width - right, height - bottom);
     context.stroke();
     context.font = '11px system-ui';
-    context.fillStyle = '#667281';
+    context.fillStyle = theme.text;
     for (let index = 0; index <= 4; index++) {
         const seconds = maxTime * index / 4;
         const y = Y(seconds);
-        context.strokeStyle = 'rgba(148,163,184,.35)';
+        context.strokeStyle = theme.grid;
         context.beginPath();
         context.moveTo(left, y);
         context.lineTo(width - right, y);
@@ -84,7 +84,7 @@ export function drawActivityComparisonChart(options: {
     context.fillText('Predicted moving time', left + 6, top + 12);
     context.fillStyle = '#d97706';
     context.fillText('Actual moving time', left + 132, top + 12);
-    context.fillStyle = '#667281';
+    context.fillStyle = theme.text;
     context.fillText(formatDistance(start), left, height - 8);
     context.fillText(formatDistance(end), width - right - 45, height - 8);
 }
@@ -98,7 +98,7 @@ export function drawActivityGradientChart(options: {
     const { canvas, curve, actual, formatPace } = options;
     if (curve.length < 2)
         return;
-    const { context, width, height } = prepareCanvas(canvas);
+    const { context, width, height, theme } = prepareCanvas(canvas);
     const left = 46;
     const right = 16;
     const top = 18;
@@ -121,7 +121,7 @@ export function drawActivityGradientChart(options: {
     const X = (grade: number) => left + (grade - minGrade) / Math.max(1, maxGrade - minGrade) * (width - left - right);
     const Y = (pace: number) => top + (pace - paceBounds.min + paceRange * .1) / (paceRange * 1.2) * (height - top - bottom);
     context.clearRect(0, 0, width, height);
-    context.strokeStyle = '#cbd3db';
+    context.strokeStyle = theme.axis;
     context.beginPath();
     context.moveTo(left, top);
     context.lineTo(left, height - bottom);
@@ -131,26 +131,26 @@ export function drawActivityGradientChart(options: {
     for (let index = 0; index <= 4; index++) {
         const pace = paceBounds.min + (paceBounds.max - paceBounds.min) * index / 4;
         const y = Y(pace);
-        context.strokeStyle = 'rgba(148,163,184,.35)';
+        context.strokeStyle = theme.grid;
         context.beginPath();
         context.moveTo(left, y);
         context.lineTo(width - right, y);
         context.stroke();
-        context.fillStyle = '#667281';
+        context.fillStyle = theme.text;
         context.fillText(formatPace(pace), 3, y + 4);
     }
     const tick = Math.max(5, Math.ceil((maxGrade - minGrade) / 8 / 5) * 5);
     context.textAlign = 'center';
     for (let grade = Math.ceil(minGrade / tick) * tick; grade <= maxGrade; grade += tick) {
         const x = X(grade);
-        context.strokeStyle = grade === 0 ? '#64748b' : '#d7dde5';
+        context.strokeStyle = grade === 0 ? theme.zero : theme.axis;
         context.setLineDash(grade === 0 ? [4, 3] : []);
         context.beginPath();
         context.moveTo(x, top);
         context.lineTo(x, height - bottom);
         context.stroke();
         context.setLineDash([]);
-        context.fillStyle = '#667281';
+        context.fillStyle = theme.text;
         context.fillText(`${grade}%`, x, height - 8);
     }
     context.strokeStyle = '#2563eb';

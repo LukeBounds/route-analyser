@@ -5,34 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Break GPX routes into terrain sections and predict route times." />
     <title>Route Analyser</title>
-    <style>
-      #plot-range { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 18px 0 0; padding: 12px 14px; background: #fff; border: 1px solid #dce1e7; border-radius: 10px; font-size: .88rem; }
-      #plot-range label { display: flex; align-items: center; gap: 6px; font-weight: 650; }
-      #plot-range input { width: 7ch; padding: 6px; border: 1px solid #cbd3db; border-radius: 6px; }
-      #plot-range input[type="checkbox"] { width: auto; padding: 0; }
-      #plot-range input[type="range"] { width: 180px; padding: 0; }
-      #plot-range input[type="number"] { width: 10ch; }
-      #pace-panel { margin-top: 32px; }
-      .page-nav { display: flex; gap: 14px; margin-bottom: 24px; font-size: .9rem; font-weight: 700; }
-      .page-nav a { color: #2563eb; text-decoration: none; }
-      .page-nav a:hover { text-decoration: underline; }
-      #pace-panel > p { color: #637181; }
-      #pace-editor { display: block; }
-      #pace-editor table { width: auto; }
-      #pace-editor th, #pace-editor td { padding: 8px 10px; }
-      #pace-editor table input { width: 7ch; padding: 6px; border: 1px solid #cbd3db; border-radius: 6px; }
-      #pace-editor select { padding: 6px; border: 1px solid #cbd3db; border-radius: 6px; }
-      #pace-editor button[data-remove] { padding: 4px 9px; background: #607183; }
-      #pace-editor small { color: #637181; white-space: nowrap; }
-      #pace-editor tbody tr { cursor: default; }
-      #pace-chart { height: 210px; margin-top: 18px; }
-      #speed-chart { height: 210px; margin-top: 8px; }
-      #pace-note { font-size: .86rem; }
-      #plot-range span { color: #637181; }
-      canvas { height: 360px; }
-      @media (max-width: 760px) { #plot-range span { flex-basis: 100%; } canvas { height: 280px; } }
-      @media (prefers-color-scheme: dark) { #plot-range { background: #1b2229; border-color: #38434e; } #plot-range span { color: #afbac4; } }
-    </style>
   </head>
   <body>
     <div id="app"></div>

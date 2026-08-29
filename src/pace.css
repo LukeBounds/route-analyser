@@ -13,15 +13,15 @@
   gap: 8px;
   align-items: center;
   margin-top: 12px;
-  color: #667281;
+  color: var(--muted);
   font-size: 0.9rem;
 }
 
 .prediction {
   margin: 24px 0;
   padding: 20px 24px;
-  background: #fff;
-  border: 1px solid #dce1e7;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 14px;
 }
 
@@ -40,7 +40,7 @@
 .prediction-head > p {
   max-width: 440px;
   margin: 0;
-  color: #667281;
+  color: var(--muted);
   font-size: .9rem;
   line-height: 1.45;
 }
@@ -56,7 +56,7 @@
   display: grid;
   gap: 4px;
   min-width: 180px;
-  color: #667281;
+  color: var(--muted);
   font-size: .78rem;
   font-weight: 700;
 }
@@ -71,14 +71,14 @@
   margin-right: 5px;
   padding: 0;
   border-radius: 5px;
-  background: #e7edf4;
-  color: #34465d;
+  background: var(--surface-soft);
+  color: var(--secondary-text);
   font-size: .85rem;
   line-height: 1;
 }
 
 .activity-input small {
-  color: #667281;
+  color: var(--muted);
   font-size: .78rem;
   font-weight: 500;
 }
@@ -95,7 +95,7 @@
   gap: 6px;
   width: 100%;
   margin: 0 0 14px;
-  color: #34465d;
+  color: var(--secondary-text);
   font-size: .9rem;
   font-weight: 700;
 }
@@ -103,16 +103,16 @@
 .pace-editor-name input {
   width: 100%;
   padding: 10px 11px;
-  border: 1px solid #b9c7d8;
+  border: 1px solid var(--border-input);
   border-radius: 8px;
-  background: #fff;
-  color: #1d2732;
+  background: var(--surface);
+  color: var(--text);
   font: inherit;
 }
 
 .curve-data-heading {
   margin: 0 0 12px;
-  color: #34465d;
+  color: var(--secondary-text);
   font-size: .9rem;
   font-weight: 700;
 }
@@ -120,7 +120,7 @@
 .pace-workspace-section {
   margin-top: 28px;
   padding-top: 24px;
-  border-top: 1px solid #dce1e7;
+  border-top: 1px solid var(--border);
 }
 
 .pace-section-header {
@@ -129,13 +129,13 @@
 
 .pace-section-header h3 {
   margin: 0;
-  color: #26384d;
+  color: var(--heading);
   font-size: 1.35rem;
 }
 
 .pace-section-header p {
   margin: 5px 0 0;
-  color: #667281;
+  color: var(--muted);
   font-size: .9rem;
   line-height: 1.45;
 }
@@ -146,9 +146,9 @@
   gap: 6px 12px;
   align-items: end;
   padding: 14px;
-  border: 1px solid #cbd8e8;
+  border: 1px solid var(--border-input);
   border-radius: 10px;
-  background: #f4f8ff;
+  background: var(--surface-accent);
 }
 
 .pace-editor-action strong,
@@ -157,12 +157,12 @@
 }
 
 .pace-editor-action strong {
-  color: #26384d;
+  color: var(--heading);
   font-size: .95rem;
 }
 
 .pace-editor-action span {
-  color: #667281;
+  color: var(--muted);
   font-size: .8rem;
   line-height: 1.35;
 }
@@ -170,7 +170,7 @@
 .pace-editor-action label {
   display: grid;
   gap: 4px;
-  color: #667281;
+  color: var(--muted);
   font-size: .78rem;
   font-weight: 650;
 }
@@ -179,10 +179,10 @@
   width: 100%;
   min-width: 180px;
   padding: 9px 10px;
-  border: 1px solid #cbd3db;
+  border: 1px solid var(--border-input);
   border-radius: 8px;
-  background: #fff;
-  color: #1d2732;
+  background: var(--surface);
+  color: var(--text);
   font: inherit;
 }
 
@@ -197,15 +197,15 @@
   gap: 12px 16px;
   margin: 20px 0 24px;
   padding: 16px;
-  border: 1px solid #dce1e7;
+  border: 1px solid var(--border);
   border-radius: 10px;
-  background: #f8fafc;
+  background: var(--surface-muted);
 }
 
 .curve-library > label {
   display: grid;
   gap: 6px;
-  color: #34465d;
+  color: var(--secondary-text);
   font-size: .85rem;
   font-weight: 700;
 }
@@ -228,8 +228,8 @@
   width: auto;
   padding: 10px 15px;
   border-radius: 8px;
-  background: #34465d;
-  color: #fff;
+  background: var(--secondary-button);
+  color: var(--secondary-button-text);
   cursor: pointer;
   font-size: .9rem;
   font-weight: 700;
@@ -243,26 +243,26 @@
   grid-column: 1 / -1;
   min-height: 1.2em;
   margin: 0;
-  color: #667281;
+  color: var(--muted);
   font-size: .85rem;
 }
 
 .curve-comparison {
   margin: 0 0 24px;
   padding: 14px 16px 16px;
-  border: 1px solid #dce1e7;
+  border: 1px solid var(--border);
   border-radius: 10px;
 }
 
 .curve-comparison legend {
   padding: 0 6px;
-  color: #34465d;
+  color: var(--secondary-text);
   font-weight: 750;
 }
 
 .curve-comparison > p {
   margin: 0 0 12px;
-  color: #667281;
+  color: var(--muted);
   font-size: .86rem;
 }
 
@@ -286,8 +286,8 @@
 .chart-series-controls {
   margin-top: 14px;
   padding-top: 12px;
-  border-top: 1px solid #e4e8ed;
-  color: #34465d;
+  border-top: 1px solid var(--border-soft);
+  color: var(--secondary-text);
   font-weight: 700;
 }
 
@@ -301,16 +301,16 @@
 
 #curve-chart-legend {
   margin-top: 12px;
-  color: #667281;
+  color: var(--muted);
 }
 
 #curve-chart-legend .line-style i {
-  background: #64748b;
+  background: var(--secondary);
 }
 
 #curve-chart-legend .line-style.dashed i {
   height: 0;
-  border-top: 2px dashed #64748b;
+  border-top: 2px dashed var(--secondary);
   border-radius: 0;
   background: transparent;
 }
@@ -337,13 +337,13 @@
   gap: 14px 16px;
   margin: 0;
   padding: 14px;
-  border: 1px solid #dce1e7;
+  border: 1px solid var(--border);
   border-radius: 10px;
 }
 
 .settings-group legend {
   padding: 0 6px;
-  color: #34465d;
+  color: var(--secondary-text);
   font-size: .82rem;
   font-weight: 750;
 }
@@ -364,9 +364,9 @@
   width: 100%;
   min-width: 0;
   padding: 8px;
-  border: 1px solid #cbd3db;
+  border: 1px solid var(--border-input);
   border-radius: 7px;
-  background: #fff;
+  background: var(--surface);
   color: inherit;
 }
 
@@ -383,7 +383,7 @@
 
 .example-route-control small {
   grid-column: 1 / -1;
-  color: #667281;
+  color: var(--muted);
   line-height: 1.35;
 }
 
@@ -395,12 +395,12 @@
 .analysis-divider {
   margin: 48px 0 0;
   padding-top: 28px;
-  border-top: 1px solid #dce1e7;
+  border-top: 1px solid var(--border);
 }
 
 .waypoint-note {
   margin: 8px 0 18px;
-  color: #667281;
+  color: var(--muted);
   font-size: .9rem;
   line-height: 1.45;
 }
@@ -414,7 +414,7 @@
 
 #waypoints summary {
   margin: 18px;
-  color: #34465d;
+  color: var(--secondary-text);
   cursor: pointer;
   font-weight: 700;
 }
@@ -438,7 +438,7 @@
 .activity-stats article {
   padding: 12px;
   border-radius: 8px;
-  background: #f4f7fb;
+  background: var(--surface-soft);
 }
 
 .activity-stats b,
@@ -448,7 +448,7 @@
 
 .activity-stats span,
 .calibration p {
-  color: #667281;
+  color: var(--muted);
   font-size: .85rem;
 }
 
@@ -465,7 +465,7 @@
 .calibration {
   margin-top: 18px;
   padding: 12px 14px;
-  background: #f8fafc;
+  background: var(--surface-muted);
   border-radius: 8px;
 }
 

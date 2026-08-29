@@ -26,6 +26,9 @@ import {
     type RouteMatchQuality,
     type StoredPaceCurve,
 } from './core';
+import { downloadCsv, type CsvValue } from './csv';
+import { createMapterhornProvider } from './elevation';
+import { largeTraceGuidance } from './largeTrace';
 import {
     createPaceInterpolator,
     isSemanticallyValidPacePoint,
@@ -92,6 +95,7 @@ type ActivityPoint = {
 };
 let activity: ActivityPoint[] = [], routePrediction: RoutePacePrediction | null = null, activityMatchQuality: RouteMatchQuality | null = null;
 const A = document.querySelector<HTMLDivElement>('#app')!, C: Record<K, string> = { climb: '#c84735', descent: '#31805a', flat: '#607183', rolling: '#b67812' };
+const elevationProvider = createMapterhornProvider();
 let p: P[] = [], waypoints: W[] = [], routeName = '', routeWaypoints: RouteWaypoint[] = [], ss: S[] = [], ms: M[] = [], tot = { up: 0, down: 0 }, profile: number[] = [], routeWarnings: string[] = [], hovered: number | null = null, hoverDistance: number | null = null, selectionStart: number | null = null, selectionEnd: number | null = null, viewStart = 0, viewEnd = Infinity;
 function routeWaypointGeometry(start: RouteWaypoint, end: RouteWaypoint) {
     return waypointSegmentGeometry(
@@ -137,9 +141,8 @@ const pauseControl = document.createElement('label');
 pauseControl.className = 'activity-input';
 pauseControl.innerHTML = 'Recording gap cutoff<input id="activity-pause" type="number" min="5" max="1800" step="5" value="120"> seconds<small>Timestamp gaps longer than this are excluded from moving time.</small>';
 const restDetectionControl = document.createElement('label');
-restDetectionControl.className = 'activity-input';
-restDetectionControl.style.cssText = 'display:flex;align-items:center;gap:7px';
-restDetectionControl.innerHTML = '<input id="activity-rest-detection" type="checkbox" style="width:auto"> Detect stationary rests';
+restDetectionControl.className = 'activity-input checkbox-control';
+restDetectionControl.innerHTML = '<input id="activity-rest-detection" type="checkbox"> Detect stationary rests';
 const movingSpeedControl = document.createElement('label');
 movingSpeedControl.className = 'activity-input';
 movingSpeedControl.innerHTML = 'Minimum moving speed<input id="activity-moving-speed" type="number" min="0.1" max="5" step="0.1" value="0.5"> km/h<small>Uses a 30-second window when stationary-rest detection is enabled.</small>';
@@ -394,6 +397,7 @@ function scheduleChartRedraw() {
     });
 }
 window.addEventListener('resize', scheduleChartRedraw);
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', scheduleChartRedraw);
 let observedAppWidth = 0;
 const chartResizeObserver = new ResizeObserver(entries => {
     const width = entries[0]?.contentRect.width ?? 0;
@@ -579,8 +583,8 @@ $('#plot-range span').textContent = 'Drag across the plot to zoom, or click a ta
 const subsectionLegend = document.createElement('span');
 subsectionLegend.textContent = '◌ Sub-section boundary';
 const waypointLegend = document.createElement('span');
+waypointLegend.className = 'waypoint-legend';
 waypointLegend.textContent = '● Named route point';
-waypointLegend.style.color = '#2563eb';
 $('.legend').append(subsectionLegend, waypointLegend);
 const plotColours = $('#plot-colours') as HTMLSelectElement, showWaypoints = $('#show-waypoints') as HTMLInputElement;
 plotColours.onchange = () => draw(profile);
@@ -603,8 +607,8 @@ for (const [id, unit] of [['grade', '%'], ['window', ' m'], ['min', ' m'], ['bri
         analyse(); };
 }
 const counterControl = document.createElement('label');
-counterControl.style.cssText = 'display:flex;align-items:center;gap:7px';
-counterControl.innerHTML = `<input id="counter-bridge" type="checkbox" checked style="width:auto"> Bridge short counter-slopes`;
+counterControl.className = 'checkbox-control';
+counterControl.innerHTML = `<input id="counter-bridge" type="checkbox" checked> Bridge short counter-slopes`;
 const counterLengthControl = document.createElement('label');
 counterLengthControl.innerHTML = `Counter-slope bridge <output id="counterBridgeOut">250 m</output><input id="counter-bridge-length" type="range" min="0" max="1000" step="25" value="250">`;
 const smoothingControl = document.createElement('label');
@@ -715,7 +719,7 @@ function setParsedRoute(parsed: ParsedRoute) {
     routeWaypoints = [];
     renderWaypoints();
 }
-function loadRouteText(text: string, name: string) {
+function loadRouteText(text: string, name: string, fileBytes = new Blob([text]).size) {
     error.textContent = '';
     fill.hidden = true;
     result.hidden = true;
@@ -726,7 +730,10 @@ function loadRouteText(text: string, name: string) {
     activityFile.value = '';
     activityPanel.hidden = true;
     routeName = name;
-    setParsedRoute(parse(text));
+    const parsed = parse(text), largeTraceWarning = largeTraceGuidance('route', parsed.points.length, fileBytes);
+    if (largeTraceWarning)
+        parsed.warnings.push(largeTraceWarning);
+    setParsedRoute(parsed);
     if (p.every(x => x.ele !== null))
         analyse();
     else {
@@ -738,7 +745,7 @@ $f.onchange = async () => { const f = $f.files?.[0]; if (!f)
     return; try {
     exampleRouteSelect.value = '';
     exampleRouteButton.disabled = true;
-    loadRouteText(await f.text(), f.name);
+    loadRouteText(await f.text(), f.name, f.size);
 }
 catch (e) {
     error.textContent = e instanceof Error ? e.message : 'Could not read GPX.';
@@ -880,7 +887,7 @@ function matchActivityToRoute(points: ActivityPoint[]) {
     if (match.quality.orientation === 'reverse')
         throw Error('This activity appears to follow the route in reverse. Reverse-direction comparison is detected, but is not yet supported.');
     if (!isConfidentRouteMatch(match.quality))
-        throw Error(`The activity could not be matched confidently to this route (median error ${Math.round(match.quality.medianError)} m, 90th percentile ${Math.round(match.quality.p90Error)} m, ${Math.round(match.quality.within150m)}% within 150 m).`);
+        throw Error(`The activity could not be matched confidently to this route (median error ${Math.round(match.quality.medianError)} m, 90th percentile ${Math.round(match.quality.p90Error)} m, ${Math.round(match.quality.within150m)}% within 150 m, ${Math.round(match.quality.ambiguousPercent)}% route-position ambiguous).`);
     const matched = points.map((point, index) => ({ ...point, routeD: p[match.indices[index]].d }));
     return applyActivityMovingTime(matched);
 }
@@ -968,17 +975,20 @@ function renderActivityAnalysis() { if (!activity.length) {
         elapsedSeconds: (activity.at(-1)!.time - activity[0].time) / 1000,
         distance: end - start,
         coveragePercent: (end - start) / (p.at(-1)!.d) * 100,
-        qualityText: activityMatchQuality ? `${Math.round(activityMatchQuality.within150m)}% of samples within 150 m; median ${Math.round(activityMatchQuality.medianError)} m and 90th percentile ${Math.round(activityMatchQuality.p90Error)} m.` : 'Match quality unavailable.',
+        qualityText: activityMatchQuality ? `${Math.round(activityMatchQuality.within150m)}% of samples within 150 m; median ${Math.round(activityMatchQuality.medianError)} m, 90th percentile ${Math.round(activityMatchQuality.p90Error)} m, and ${Math.round(activityMatchQuality.ambiguousPercent)}% route-position ambiguous.` : 'Match quality unavailable.',
         guidanceHtml: [...byKind.entries()].filter(([, value]) => value.expected > 60).map(([kind, value]) => { const difference = (value.actual / value.expected - 1) * 100; return `<li><b>${kind[0].toUpperCase() + kind.slice(1)}:</b> ${Math.abs(difference).toFixed(0)}% ${difference > 0 ? 'slower' : 'faster'} than the selected curve.</li>`; }).join('') || '<li>Not enough route coverage for section-level calibration.</li>',
     }, curveName = escapeHtml(viewModel.curveName); activityPanel.innerHTML = `<div class="prediction-head"><div><p class="eyebrow">Activity versus ${curveName}</p><h2>${signedDuration(viewModel.differenceSeconds)}</h2></div><p>${durationText(viewModel.actualSeconds)} moving versus ${durationText(viewModel.expectedSeconds)} predicted across ${viewModel.coveragePercent.toFixed(0)}% of the route. Positive means slower than predicted.</p></div><div class="activity-stats"><article><b>${durationText(viewModel.elapsedSeconds)}</b><span>Elapsed time</span></article><article><b>${durationText(viewModel.actualSeconds)}</b><span>Moving time</span></article><article><b>${durationText(viewModel.expectedSeconds)}</b><span>Predicted time · ${curveName}</span></article><article><b>${paceText(viewModel.actualSeconds / (viewModel.distance / 1000))}/km</b><span>Actual average pace</span></article></div><p class="match-quality"><b>Route match:</b> ${viewModel.qualityText}</p><button type="button" id="activity-csv">Download activity comparison CSV</button><canvas id="activity-chart" aria-label="Actual and predicted cumulative moving time">Actual and predicted values are included in the terrain and waypoint tables.</canvas><h3>Actual pace against the curve</h3><canvas id="activity-gradient-chart" aria-label="Actual pace samples against the pace curve">The activity summary and section comparisons provide a text alternative to this chart.</canvas><details class="calibration" open><summary>Calibration indications</summary><p>These observations describe this activity; keep effort level and terrain context in mind before changing a curve.</p><ul>${viewModel.guidanceHtml}</ul></details>`; activityPanel.querySelector<HTMLButtonElement>('#activity-csv')!.onclick = downloadActivityCsv; renderTerrainTable(); renderWaypointSegments(); drawActivityComparison(); drawActivityGradient(); }
 activityFile.onchange = async () => { const file = activityFile.files?.[0]; if (!file)
     return; error.textContent = ''; try {
-    const text = await file.text(), recorded = parseActivity(text), useAsRoute = !p.length || !profile.length;
+    const text = await file.text(), recorded = parseActivity(text), largeActivityWarning = largeTraceGuidance('activity', recorded.length, file.size), useAsRoute = !p.length || !profile.length;
     if (useAsRoute) {
         result.hidden = true;
         fill.hidden = true;
         routePrediction = null;
-        setParsedRoute(parse(text));
+        const parsed = parse(text);
+        if (largeActivityWarning)
+            parsed.warnings.push(largeActivityWarning);
+        setParsedRoute(parsed);
         activity = matchActivityToRoute(recorded);
         if (p.every(point => point.ele !== null))
             analyse();
@@ -989,7 +999,7 @@ activityFile.onchange = async () => { const file = activityFile.files?.[0]; if (
     }
     else
         activity = matchActivityToRoute(recorded);
-    status.textContent = `Activity loaded: ${activity.length.toLocaleString()} timestamped points ${useAsRoute ? 'analysed as its own route' : `matched to ${fmt(activity.at(-1)!.routeD - activity[0].routeD)} of the route`}.${activityMatchQuality ? ` Median route error ${Math.round(activityMatchQuality.medianError)} m; ${Math.round(activityMatchQuality.within150m)}% within 150 m.` : ''}`;
+    status.textContent = `Activity loaded: ${activity.length.toLocaleString()} timestamped points ${useAsRoute ? 'analysed as its own route' : `matched to ${fmt(activity.at(-1)!.routeD - activity[0].routeD)} of the route`}.${activityMatchQuality ? ` Median route error ${Math.round(activityMatchQuality.medianError)} m; ${Math.round(activityMatchQuality.within150m)}% within 150 m; ${Math.round(activityMatchQuality.ambiguousPercent)}% route-position ambiguous.` : ''}${largeActivityWarning ? ` ${largeActivityWarning}` : ''}`;
     if (!result.hidden)
         renderActivityAnalysis();
 }
@@ -1061,19 +1071,15 @@ function renderTerrainTable() {
 function downloadActivityCsv() {
     if (!activity.length || !routePrediction)
         return;
-    const header = ['record_type', 'section_number', 'start_name', 'end_name', 'start_distance_m', 'end_distance_m', 'distance_m', 'elevation_change_m', 'predicted_moving_time_s', 'predicted_pace_s_per_km', 'predicted_vam_m_per_h', 'predicted_cumulative_s', 'actual_moving_time_s', 'actual_pace_s_per_km', 'actual_vam_m_per_h', 'actual_cumulative_s', 'actual_minus_predicted_s', 'match_median_error_m', 'match_p90_error_m', 'match_within_150m_percent', 'recording_gap_cutoff_s', 'stationary_rest_detection', 'minimum_moving_speed_kmh', 'pace_curve_name', 'pace_curve_id'], rows: string[][] = [], add = (...values: (string | number | boolean | undefined | null)[]) => rows.push(values.map(value => value === undefined || value === null ? '' : String(value))), addComparison = (recordType: string, sectionNumber: string | number, startName: string, endName: string, from: number, to: number, change: number) => {
+    const header = ['record_type', 'section_number', 'start_name', 'end_name', 'start_distance_m', 'end_distance_m', 'distance_m', 'elevation_change_m', 'predicted_moving_time_s', 'predicted_pace_s_per_km', 'predicted_vam_m_per_h', 'predicted_cumulative_s', 'actual_moving_time_s', 'actual_pace_s_per_km', 'actual_vam_m_per_h', 'actual_cumulative_s', 'actual_minus_predicted_s', 'match_median_error_m', 'match_p90_error_m', 'match_within_150m_percent', 'match_ambiguous_samples', 'match_ambiguous_percent', 'recording_gap_cutoff_s', 'stationary_rest_detection', 'minimum_moving_speed_kmh', 'pace_curve_name', 'pace_curve_id'], rows: CsvValue[][] = [], add = (...values: CsvValue[]) => rows.push(values), addComparison = (recordType: string, sectionNumber: string | number, startName: string, endName: string, from: number, to: number, change: number) => {
         const comparison = activityComparison(from, to), distance = to - from, predictedCumulative = interpolateRouteTime(to), actualAtEnd = interpolateActivityTime(to), actualCumulative = actualAtEnd === null ? undefined : actualAtEnd - activity[0].moving, summary = recordType === 'summary';
-        add(recordType, sectionNumber, startName, endName, from, to, distance, change, comparison?.expected, comparison && distance > 0 ? comparison.expected / (distance / 1000) : undefined, comparison ? vamValue(change, comparison.expected) : undefined, predictedCumulative, comparison?.actual, comparison && distance > 0 ? comparison.actual / (distance / 1000) : undefined, comparison ? vamValue(change, comparison.actual) : undefined, actualCumulative, comparison?.delta, summary ? activityMatchQuality?.medianError : undefined, summary ? activityMatchQuality?.p90Error : undefined, summary ? activityMatchQuality?.within150m : undefined, summary ? Number(activityPause.value) : undefined, summary ? activityRestDetection.checked : undefined, summary ? Number(activityMovingSpeed.value) : undefined, activePaceCurve().name, activePaceCurveId);
+        add(recordType, sectionNumber, startName, endName, from, to, distance, change, comparison?.expected, comparison && distance > 0 ? comparison.expected / (distance / 1000) : undefined, comparison ? vamValue(change, comparison.expected) : undefined, predictedCumulative, comparison?.actual, comparison && distance > 0 ? comparison.actual / (distance / 1000) : undefined, comparison ? vamValue(change, comparison.actual) : undefined, actualCumulative, comparison?.delta, summary ? activityMatchQuality?.medianError : undefined, summary ? activityMatchQuality?.p90Error : undefined, summary ? activityMatchQuality?.within150m : undefined, summary ? activityMatchQuality?.ambiguousSamples : undefined, summary ? activityMatchQuality?.ambiguousPercent : undefined, summary ? Number(activityPause.value) : undefined, summary ? activityRestDetection.checked : undefined, summary ? Number(activityMovingSpeed.value) : undefined, activePaceCurve().name, activePaceCurveId);
     };
     const start = activity[0].routeD, end = activity.at(-1)!.routeD;
     addComparison('summary', '', '', '', start, end, profile[locate(end)] - profile[locate(start)]);
     ms.forEach((section, index) => { const from = p[section.a].d, to = p[section.b].d; addComparison('terrain_section', index + 1, '', '', from, to, p[section.b].ele! - p[section.a].ele!); section.c.forEach((child, childIndex) => addComparison('terrain_subsection', `${index + 1}.${childIndex + 1}`, '', '', p[child.a].d, p[child.b].d, p[child.b].ele! - p[child.a].ele!)); });
     routeWaypoints.slice(1).forEach((endPoint, position) => { const startPoint = routeWaypoints[position], geometry = routeWaypointGeometry(startPoint, endPoint); addComparison('waypoint_segment', '', startPoint.waypoint.name, endPoint.waypoint.name, p[startPoint.index].d, p[endPoint.index].d, geometry.elevationChange); });
-    const csv = [header, ...rows].map(row => row.map(value => `"${value.replace(/"/g, '""')}"`).join(',')).join('\n'), url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })), link = document.createElement('a');
-    link.href = url;
-    link.download = 'activity-comparison.csv';
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadCsv('activity-comparison.csv', [header, ...rows]);
 }
 function renderWaypointSegments() {
     if (routeWaypoints.length < 2) {
@@ -1203,12 +1209,12 @@ function focusTerrainSection(row: HTMLTableRowElement) { const section = ms[Numb
     return; const row = (event.target as HTMLElement).closest<HTMLTableRowElement>('[data-primary]'); if (!row)
     return; event.preventDefault(); focusTerrainSection(row); });
 function downloadAnalysisCsv() {
-    const header = ['record_type', 'section_number', 'parent_section', 'section_type', 'section_label', 'start_name', 'end_name', 'start_distance_m', 'end_distance_m', 'distance_m', 'elevation_change_m', 'average_grade_percent', 'predicted_time_s', 'predicted_pace_s_per_km', 'predicted_vam_m_per_h', 'cumulative_time_s', 'segment_average_time_s', 'segment_average_pace_s_per_km', 'segment_average_vam_m_per_h', 'segment_average_cumulative_s', 'local_gradient_time_s', 'local_gradient_pace_s_per_km', 'local_gradient_vam_m_per_h', 'local_gradient_cumulative_s', 'setting', 'value'], rows: string[][] = [], add = (cells: [
+    const header = ['record_type', 'section_number', 'parent_section', 'section_type', 'section_label', 'start_name', 'end_name', 'start_distance_m', 'end_distance_m', 'distance_m', 'elevation_change_m', 'average_grade_percent', 'predicted_time_s', 'predicted_pace_s_per_km', 'predicted_vam_m_per_h', 'cumulative_time_s', 'segment_average_time_s', 'segment_average_pace_s_per_km', 'segment_average_vam_m_per_h', 'segment_average_cumulative_s', 'local_gradient_time_s', 'local_gradient_pace_s_per_km', 'local_gradient_vam_m_per_h', 'local_gradient_cumulative_s', 'setting', 'value'], rows: CsvValue[][] = [], add = (cells: [
         number,
         string | number | boolean | null | undefined
-    ][]) => { const output = Array(header.length).fill(''); cells.forEach(([index, value]) => { if (value !== undefined && value !== null)
-        output[index] = String(value); }); rows.push(output); }, curve = curvePoints(), hasCurve = curve.length >= 2, paceAt = hasCurve ? createPaceInterpolator(curve) : null;
-    [['route_distance_m', p.at(-1)?.d ?? 0], ['total_ascent_m', tot.up], ['total_descent_m', tot.down], ['predicted_route_time_s', paceEstimate?.total ?? ''], ['selected_pace_curve_name', activePaceCurve().name], ['selected_pace_curve_id', activePaceCurveId], ['grade_threshold_percent', val('#grade')], ['rolling_window_m', val('#window')], ['minimum_section_m', val('#min')], ['flat_rolling_bridge_m', val('#bridge')], ['profile_smoothing_m', Number(profileSmoothing.value)], ['counter_slope_bridge_enabled', counterBridge.checked], ['counter_slope_bridge_m', Number(counterBridgeLength.value)], ['counter_slope_reversal_percent', Number(counterReversal.value)], ['recording_gap_cutoff_s', Number(activityPause.value)], ['stationary_rest_detection', activityRestDetection.checked], ['minimum_moving_speed_kmh', Number(activityMovingSpeed.value)], ['route_parse_warnings', routeWarnings.join(' ')]].forEach(([key, value]) => add([[0, 'setting'], [24, String(key)], [25, String(value)]]));
+    ][]) => { const output: CsvValue[] = Array(header.length).fill(''); cells.forEach(([index, value]) => { if (value !== undefined && value !== null)
+        output[index] = value; }); rows.push(output); }, curve = curvePoints(), hasCurve = curve.length >= 2, paceAt = hasCurve ? createPaceInterpolator(curve) : null;
+    [['route_distance_m', p.at(-1)?.d ?? 0], ['total_ascent_m', tot.up], ['total_descent_m', tot.down], ['predicted_route_time_s', paceEstimate?.total ?? ''], ['selected_pace_curve_name', activePaceCurve().name], ['selected_pace_curve_id', activePaceCurveId], ['grade_threshold_percent', val('#grade')], ['rolling_window_m', val('#window')], ['minimum_section_m', val('#min')], ['flat_rolling_bridge_m', val('#bridge')], ['profile_smoothing_m', Number(profileSmoothing.value)], ['counter_slope_bridge_enabled', counterBridge.checked], ['counter_slope_bridge_m', Number(counterBridgeLength.value)], ['counter_slope_reversal_percent', Number(counterReversal.value)], ['recording_gap_cutoff_s', Number(activityPause.value)], ['stationary_rest_detection', activityRestDetection.checked], ['minimum_moving_speed_kmh', Number(activityMovingSpeed.value)], ['route_parse_warnings', routeWarnings.join(' ')]].forEach(([key, value]) => add([[0, 'setting'], [24, key], [25, value]]));
     pacePoints.forEach(point => add([[0, 'pace_curve_point'], [24, activePaceCurve().name], [25, `grade=${point.grade}; value=${point.pace}`]]));
     let cumulative = 0;
     ms.forEach((section, index) => { const a = p[section.a], b = p[section.b], distance = b.d - a.d, change = b.ele! - a.ele!, seconds = routePrediction ? routePrediction.cumulative[section.b] - routePrediction.cumulative[section.a] : paceEstimate?.sections[index]; if (seconds !== undefined)
@@ -1221,49 +1227,16 @@ function downloadAnalysisCsv() {
         averageCumulative += averageSeconds;
         detailedCumulative += detailedSeconds;
     } add([[0, 'waypoint_segment'], [5, start.waypoint.name], [6, waypoint.name], [7, p[start.index].d], [8, p[index].d], [9, distance], [10, change], [11, distance > 0 ? grade : undefined], [16, averageSeconds], [17, averageSeconds === undefined || distance <= 0 ? undefined : averageSeconds / (distance / 1000)], [18, averageSeconds === undefined ? undefined : vamValue(change, averageSeconds)], [19, averageSeconds === undefined ? undefined : averageCumulative], [20, detailedSeconds], [21, detailedSeconds === undefined || distance <= 0 ? undefined : detailedSeconds / (distance / 1000)], [22, detailedSeconds === undefined ? undefined : vamValue(change, detailedSeconds)], [23, detailedSeconds === undefined ? undefined : detailedCumulative]]); });
-    const escape = (value: string) => `"${value.replace(/"/g, '""')}"`, csv = [header, ...rows].map(row => row.map(escape).join(',')).join('\n'), url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })), link = document.createElement('a');
-    link.href = url;
-    link.download = 'route-analysis.csv';
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadCsv('route-analysis.csv', [header, ...rows]);
 }
 $('#csv').textContent = 'Download analysis CSV';
 $('#csv').addEventListener('click', downloadAnalysisCsv);
-type Tile = {
-    z: number;
-    x: number;
-    y: number;
-    s: {
-        p: P;
-        x: number;
-        y: number;
-    }[];
-};
-function tile(x: P, z: number) { const n = 2 ** z, longitude = Math.max(-180, Math.min(179.999999, x.lon)), latitude = Math.max(-85.05112878, Math.min(85.05112878, x.lat)), a = (longitude + 180) / 360 * n, b = (1 - Math.asinh(Math.tan(latitude * Math.PI / 180)) / Math.PI) / 2 * n, X = Math.max(0, Math.min(n - 1, Math.floor(a))), Y = Math.max(0, Math.min(n - 1, Math.floor(b))); return { x: X, y: Y, px: Math.max(0, Math.min(511, Math.floor((a - X) * 512))), py: Math.max(0, Math.min(511, Math.floor((b - Y) * 512))) }; }
-function plan() { const z = 15, t = new Map<string, Tile>(); p.forEach(p0 => { const a = tile(p0, z), k = `${z}/${a.x}/${a.y}`; if (!t.has(k))
-    t.set(k, { z, x: a.x, y: a.y, s: [] }); t.get(k)!.s.push({ p: p0, x: a.px, y: a.py }); }); return [...t.values()]; }
-async function fetchTerrain(t: Tile[]) { const q = [...t]; let done = 0; async function work() { while (q.length) {
-    const x = q.shift()!, r = await fetch(`https://tiles.mapterhorn.com/${x.z}/${x.x}/${x.y}.webp`);
-    if (!r.ok)
-        throw Error('Mapterhorn terrain tiles could not be reached.');
-    const b = await createImageBitmap(await r.blob()), c = document.createElement('canvas');
-    c.width = c.height = 512;
-    const g = c.getContext('2d', { willReadFrequently: true })!;
-    g.drawImage(b, 0, 0);
-    b.close();
-    const pixels = g.getImageData(0, 0, 512, 512).data;
-    x.s.forEach(s => {
-        const offset = (s.y * 512 + s.x) * 4, elevation = pixels[offset] * 256 + pixels[offset + 1] + pixels[offset + 2] / 256 - 32768;
-        if (!pixels[offset + 3] || !Number.isFinite(elevation) || elevation < -1000 || elevation > 10000)
-            throw Error('A Mapterhorn terrain tile returned an invalid elevation value.');
-        s.p.ele = elevation;
-    });
-    status.textContent = `Getting full-detail Mapterhorn terrain: ${++done} of ${t.length} tiles…`;
-} } await Promise.all(Array.from({ length: Math.min(4, t.length) }, work)); }
 ($('#fillBtn') as HTMLButtonElement).onclick = async () => { const b = $('#fillBtn') as HTMLButtonElement; b.disabled = true; try {
-    const t = plan();
-    status.textContent = `Getting full-detail Mapterhorn terrain from ${t.length} tiles…`;
-    await fetchTerrain(t);
+    const lookup = elevationProvider.prepare(p);
+    status.textContent = `Getting full-detail ${elevationProvider.name} terrain from ${lookup.requestCount} tiles…`;
+    await lookup.fill(({ completed, total }) => {
+        status.textContent = `Getting full-detail ${elevationProvider.name} terrain: ${completed} of ${total} tiles…`;
+    });
     fill.hidden = true;
     analyse();
 }

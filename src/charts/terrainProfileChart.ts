@@ -96,7 +96,7 @@ export function drawTerrainProfile(options: {
     const padding = Math.max(5, (bounds.high - bounds.low) * .08);
     const low = bounds.low - padding;
     const elevationSpan = Math.max(10, bounds.high - bounds.low + padding * 2);
-    const { context, width, height } = prepareCanvas(canvas);
+    const { context, width, height, theme } = prepareCanvas(canvas);
     const left = 50;
     const right = 14;
     const top = 14;
@@ -145,13 +145,13 @@ export function drawTerrainProfile(options: {
         }
     };
 
-    context.strokeStyle = '#cbd3db';
+    context.strokeStyle = theme.axis;
     context.beginPath();
     context.moveTo(left, top);
     context.lineTo(left, height - bottom);
     context.lineTo(width - right, height - bottom);
     context.stroke();
-    context.fillStyle = '#667281';
+    context.fillStyle = theme.text;
     context.font = '12px system-ui';
     context.fillText(`${Math.round(low + elevationSpan)} m`, 3, top + 10);
     context.fillText(`${Math.round(low)} m`, 3, height - bottom);
@@ -183,8 +183,8 @@ export function drawTerrainProfile(options: {
         });
     }
     if (viewStart !== 0 || viewEnd !== total) {
-        context.fillStyle = '#f8fafc';
-        context.strokeStyle = '#34465d';
+        context.fillStyle = theme.markerFill;
+        context.strokeStyle = theme.text;
         context.lineWidth = 1.5;
         const boundaries = new Set<number>();
         primarySections.forEach(primary => primary.c.forEach(section => {
@@ -203,7 +203,7 @@ export function drawTerrainProfile(options: {
     if (hoveredPrimary !== null && viewStart === 0 && viewEnd === total) {
         const primary = primarySections[hoveredPrimary];
         if (primary) {
-            line({ k: 'flat', a: primary.a, b: primary.b }, 8, '#111827');
+            line({ k: 'flat', a: primary.a, b: primary.b }, 8, theme.hover);
             primary.c.forEach(section => line(section, 4));
         }
     }
@@ -246,7 +246,7 @@ export function drawTerrainProfile(options: {
         const section = primary
             ? `${primary.k[0].toUpperCase() + primary.k.slice(1)} ${hoveredPrimary! + 1}${subsection === undefined || subsection < 0 ? '' : `.${subsection + 1}`} · `
             : '';
-        context.fillStyle = '#111827';
+        context.fillStyle = theme.hover;
         context.fillText(`${waypoint ? `${waypoint} · ` : ''}${section}${grade >= 0 ? '+' : ''}${grade.toFixed(1)}% local grade`, left + 8, top + 16);
     }
 }

@@ -94,4 +94,22 @@ ok(!isConfidentRouteMatch(reverseMatch.quality), 'a reverse match is not silentl
 const unrelated = matchRouteSamples(route, activity.map(point => ({ lat: point.lat + 2, lon: point.lon + 2 })));
 ok(!isConfidentRouteMatch(unrelated.quality), 'an unrelated activity is rejected');
 
+const sparseRoute = Array.from({ length: 21 }, (_, index) => ({ lat: 51 + index * 0.001, lon: 0, d: index * 111 }));
+const denseRoute = Array.from({ length: 201 }, (_, index) => ({ lat: 51 + index * 0.0001, lon: 0, d: index * 11.1 }));
+const representationIndependentActivity = sparseRoute.slice(2, 19).map(point => ({ lat: point.lat, lon: point.lon + 0.00001 }));
+const sparseMatch = matchRouteSamples(sparseRoute, representationIndependentActivity);
+const denseMatch = matchRouteSamples(denseRoute, representationIndependentActivity);
+ok(isConfidentRouteMatch(sparseMatch.quality), 'a sparse route representation matches confidently');
+ok(isConfidentRouteMatch(denseMatch.quality), 'a dense route representation matches confidently');
+ok(Math.abs(sparseMatch.quality.progress - denseMatch.quality.progress) < 25, 'matching progress is independent of route point density');
+
+const retracedRoute = [
+    ...Array.from({ length: 20 }, (_, index) => 51 + index * 0.001),
+    ...Array.from({ length: 19 }, (_, index) => 51 + (18 - index) * 0.001),
+].map((lat, index) => ({ lat, lon: 0, d: index * 111 }));
+const retracedActivity = retracedRoute.slice(2, 18).map(point => ({ lat: point.lat, lon: point.lon + 0.00001 }));
+const retracedMatch = matchRouteSamples(retracedRoute, retracedActivity);
+ok(retracedMatch.quality.ambiguousPercent > 50, 'a repeated route reports ambiguous samples');
+ok(!isConfidentRouteMatch(retracedMatch.quality), 'a highly ambiguous repeated route is not accepted silently');
+
 console.log('Core regression tests passed.');

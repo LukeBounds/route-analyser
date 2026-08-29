@@ -171,14 +171,16 @@ Phase 4 result: chart rendering now lives under `src/charts/`. Pace and speed us
 
 ### Phase 5 — hardening
 
-- [ ] Use a shared CSV encoder with formula-prefix protection.
-- [ ] Move Mapterhorn lookup behind an elevation-provider interface.
-- [ ] Change route matching to distance-based progress windows.
-- [ ] Detect and report ambiguous crossing/retrace matches.
-- [ ] Add large-file guidance and move heavy pure calculations to a Web Worker if profiling justifies it.
-- [ ] Complete dark-mode theming with CSS custom properties.
-- [ ] Format and consolidate styles.
-- [ ] Update the README to use the declared pnpm workflow consistently.
+- [x] Use a shared CSV encoder with formula-prefix protection.
+- [x] Move Mapterhorn lookup behind an elevation-provider interface.
+- [x] Change route matching to distance-based progress windows.
+- [x] Detect and report ambiguous crossing/retrace matches.
+- [x] Add large-file guidance and move heavy pure calculations to a Web Worker if profiling justifies it.
+- [x] Complete dark-mode theming with CSS custom properties.
+- [x] Format and consolidate styles.
+- [x] Update the README to use the declared pnpm workflow consistently.
+
+Phase 5 result: CSV generation now has one formula-safe encoder, elevation lookup is isolated behind a provider contract, and route matching uses metre-based progress windows with explicit ambiguity metrics for crossings and retraces. Large traces retain full detail and receive visible performance guidance. Current browser smoke testing and the bundled long route did not show UI blocking that justified the complexity of a worker; the pure calculation modules remain worker-ready if profiling of 100,000+ point traces later demonstrates a need. Page styles are consolidated out of `index.html`, share light/dark custom properties, and canvas renderers read the same theme. The README and CI now consistently use pnpm.
 
 ## Required regression coverage
 

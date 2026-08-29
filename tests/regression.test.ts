@@ -5,5 +5,8 @@ import './pace.test.js';
 import './paceLibrary.test.js';
 import './viewModels.test.js';
 import './charts.test.js';
+import './csv.test.js';
+import './elevation.test.js';
+import './largeTrace.test.js';
 
 console.log('All regression tests passed.');

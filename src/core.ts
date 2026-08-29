@@ -16,6 +16,8 @@ export interface RouteMatchQuality {
     maxError: number;
     within150m: number;
     progress: number;
+    ambiguousSamples: number;
+    ambiguousPercent: number;
 }
 
 export interface RouteMatch {
@@ -239,7 +241,7 @@ class RouteGrid {
     private readonly cells = new Map<string, number[]>();
     private readonly cellSize = 0.002;
 
-    constructor(private readonly route: GeoPoint[]) {
+    constructor(private readonly route: Array<GeoPoint & { d: number }>) {
         route.forEach((point, index) => {
             const key = this.key(point.lat, point.lon);
             const values = this.cells.get(key) ?? [];
@@ -259,12 +261,21 @@ class RouteGrid {
         return nearestFromIndexes(this.route, point, Array.from({ length: to - from + 1 }, (_, offset) => from + offset));
     }
 
-    nearestInRange(point: GeoPoint, from: number, to: number): { index: number; distance: number } {
-        const nearby = this.nearbyIndexes(point).filter(index => index >= from && index <= to);
-        const candidates = nearby.length
-            ? nearby
-            : Array.from({ length: Math.max(0, to - from + 1) }, (_, offset) => from + offset);
-        return nearestFromIndexes(this.route, point, candidates);
+    nearestInDistanceRange(point: GeoPoint, fromDistance: number, toDistance: number): { index: number; distance: number } {
+        const nearby = this.nearbyIndexes(point).filter(index => this.route[index].d >= fromDistance && this.route[index].d <= toDistance);
+        if (nearby.length)
+            return nearestFromIndexes(this.route, point, nearby);
+        const from = this.lowerBoundDistance(fromDistance);
+        const to = Math.max(from, this.upperBoundDistance(toDistance) - 1);
+        return nearestFromIndexRange(this.route, point, Math.min(from, this.route.length - 1), Math.min(to, this.route.length - 1));
+    }
+
+    isAmbiguous(point: GeoPoint, selectedIndex: number): boolean {
+        const selectedDistance = haversineMeters(point, this.route[selectedIndex]);
+        const comparableError = Math.max(30, selectedDistance + 10);
+        return this.nearbyIndexes(point).some(index =>
+            Math.abs(this.route[index].d - this.route[selectedIndex].d) >= 500
+            && haversineMeters(point, this.route[index]) <= comparableError);
     }
 
     private nearbyIndexes(point: GeoPoint): number[] {
@@ -283,6 +294,32 @@ class RouteGrid {
     private key(latitude: number, longitude: number): string {
         return `${Math.floor(latitude / this.cellSize)}:${Math.floor(longitude / this.cellSize)}`;
     }
+
+    private lowerBoundDistance(distance: number): number {
+        let low = 0;
+        let high = this.route.length;
+        while (low < high) {
+            const middle = (low + high) >> 1;
+            if (this.route[middle].d < distance)
+                low = middle + 1;
+            else
+                high = middle;
+        }
+        return low;
+    }
+
+    private upperBoundDistance(distance: number): number {
+        let low = 0;
+        let high = this.route.length;
+        while (low < high) {
+            const middle = (low + high) >> 1;
+            if (this.route[middle].d <= distance)
+                low = middle + 1;
+            else
+                high = middle;
+        }
+        return low;
+    }
 }
 
 function nearestFromIndexes(route: GeoPoint[], point: GeoPoint, indexes: number[]): { index: number; distance: number } {
@@ -298,18 +335,32 @@ function nearestFromIndexes(route: GeoPoint[], point: GeoPoint, indexes: number[
     return { index: bestIndex, distance: bestDistance };
 }
 
+function nearestFromIndexRange(route: GeoPoint[], point: GeoPoint, from: number, to: number): { index: number; distance: number } {
+    let bestIndex = from;
+    let bestDistance = Infinity;
+    for (let index = from; index <= to; index++) {
+        const distance = haversineMeters(point, route[index]);
+        if (distance < bestDistance) {
+            bestIndex = index;
+            bestDistance = distance;
+        }
+    }
+    return { index: bestIndex, distance: bestDistance };
+}
+
 function matchDirection(route: Array<GeoPoint & { d: number }>, samples: GeoPoint[], direction: 1 | -1, grid: RouteGrid): RouteMatch {
     let previous = grid.nearest(samples[0]).index;
     const indices: number[] = [];
     const errors: number[] = [];
+    let ambiguousSamples = 0;
     for (const sample of samples) {
-        const from = direction === 1 ? Math.max(previous, previous - 20) : Math.max(0, previous - 450);
-        const to = direction === 1 ? Math.min(route.length - 1, previous + 450) : Math.min(route.length - 1, previous + 20);
-        const constrainedFrom = direction === 1 ? previous : from, constrainedTo = direction === 1 ? to : previous;
-        let match = grid.nearestInRange(sample, constrainedFrom, constrainedTo);
+        const previousDistance = route[previous].d;
+        const fromDistance = direction === 1 ? previousDistance : Math.max(0, previousDistance - 5_000);
+        const toDistance = direction === 1 ? Math.min(route.at(-1)!.d, previousDistance + 5_000) : previousDistance;
+        let match = grid.nearestInDistanceRange(sample, fromDistance, toDistance);
         if (match.distance > 150) {
             const global = grid.nearest(sample);
-            const progresses = direction === 1 ? global.index >= previous : global.index <= previous;
+            const progresses = direction === 1 ? route[global.index].d >= previousDistance : route[global.index].d <= previousDistance;
             if (progresses) {
                 match = global;
             }
@@ -318,6 +369,8 @@ function matchDirection(route: Array<GeoPoint & { d: number }>, samples: GeoPoin
         const error = haversineMeters(sample, route[previous]);
         indices.push(previous);
         errors.push(error);
+        if (grid.isAmbiguous(sample, previous))
+            ambiguousSamples++;
     }
     const progress = indices.length < 2 ? 0 : Math.abs(route[indices.at(-1)!].d - route[indices[0]].d);
     let maxError = 0;
@@ -330,6 +383,8 @@ function matchDirection(route: Array<GeoPoint & { d: number }>, samples: GeoPoin
         maxError,
         within150m: errors.filter(error => error <= 150).length / Math.max(1, errors.length) * 100,
         progress,
+        ambiguousSamples,
+        ambiguousPercent: ambiguousSamples / Math.max(1, samples.length) * 100,
     };
     return { indices, errors, quality };
 }
@@ -352,5 +407,6 @@ export function isConfidentRouteMatch(quality: RouteMatchQuality): boolean {
         && quality.within150m >= 80
         && quality.medianError <= 75
         && quality.p90Error <= 200
-        && quality.progress >= 50;
+        && quality.progress >= 50
+        && quality.ambiguousPercent <= 20;
 }
