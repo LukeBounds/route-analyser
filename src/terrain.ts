@@ -66,6 +66,23 @@ function locate(points: TerrainPoint[], distance: number): number {
     return low;
 }
 
+export function localGradeAtDistance(
+    points: TerrainPoint[],
+    profile: number[],
+    distance: number,
+    window = 100,
+): number {
+    if (!points.length || profile.length !== points.length) {
+        return 0;
+    }
+    const first = locate(points, Math.max(0, distance - window / 2));
+    const last = locate(points, Math.min(points.at(-1)!.d, distance + window / 2));
+    const profileDistance = points[last].d - points[first].d;
+    return first === last || profileDistance <= 0
+        ? 0
+        : (profile[last] - profile[first]) / profileDistance * 100;
+}
+
 function sectionLength(points: TerrainPoint[], section: TerrainSection): number {
     return points[section.b].d - points[section.a].d;
 }
@@ -232,12 +249,7 @@ function gradientSubsections(
     }
 
     const band = (index: number) => {
-        const first = locate(points, Math.max(0, points[index].d - 50));
-        const last = locate(points, Math.min(points.at(-1)!.d, points[index].d + 50));
-        const distance = points[last].d - points[first].d;
-        const grade = first === last || distance <= 0
-            ? 0
-            : (profile[last] - profile[first]) / distance * 100;
+        const grade = localGradeAtDistance(points, profile, points[index].d);
         const amount = Math.abs(grade);
         if (amount < threshold) {
             return { kind: 'rolling' as TerrainKind, label: 'sub-rolling' };
@@ -376,14 +388,8 @@ export function analyseTerrain(points: TerrainPoint[], settings: TerrainSettings
     }
     const rawElevations = elevations(points);
     const profile = smoothElevations(points, settings.profileSmoothing);
-    const totalDistance = points.at(-1)!.d;
     const base = points.slice(0, -1).map((point): TerrainKind => {
-        const first = locate(points, Math.max(0, point.d - 50));
-        const last = locate(points, Math.min(totalDistance, point.d + 50));
-        const distance = points[last].d - points[first].d;
-        const grade = first === last || distance <= 0
-            ? 0
-            : (profile[last] - profile[first]) / distance * 100;
+        const grade = localGradeAtDistance(points, profile, point.d);
         return grade >= settings.gradeThreshold
             ? 'climb'
             : grade <= -settings.gradeThreshold

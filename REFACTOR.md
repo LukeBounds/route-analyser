@@ -143,10 +143,10 @@ This is a direction rather than a requirement to create every file immediately. 
 
 ### Phase 2 — centralise pace calculations
 
-- [ ] Extract pace/VAM parsing and semantic validation.
-- [ ] Create one pace interpolator used by route, waypoint, activity, and CSV calculations.
-- [ ] Create one local-gradient function used by terrain plots and all predictions.
-- [ ] Version the browser pace-library state and retain legacy migration.
+- [x] Extract pace/VAM parsing and semantic validation.
+- [x] Create one pace interpolator and cumulative route prediction used by route, waypoint, activity, and CSV calculations.
+- [x] Create one local-gradient function used by terrain classification, terrain plots, activity samples, and all predictions.
+- [x] Version the browser pace-library state and retain migration of saved multi-curve arrays. Obsolete standalone single-curve data is deliberately ignored so an otherwise fresh browser starts with the four built-ins.
 
 ### Phase 3 — make rendering deterministic
 

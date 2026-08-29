@@ -1,5 +1,6 @@
 import {
     analyseTerrain,
+    localGradeAtDistance,
     smoothElevations,
     type TerrainPoint,
     type TerrainSettings,
@@ -38,6 +39,16 @@ const climb = analyseTerrain(points([0, 200, 400], [0, 10, 20]), settings());
 equal(climb.sections.length, 1, 'a sustained climb produces one terrain section');
 equal(climb.sections[0].k, 'climb', 'a sustained positive grade is a climb');
 equal(climb.primarySections[0].c[0].label, 'moderate sub-climb', 'a five-percent climb uses the current moderate band');
+equal(
+    localGradeAtDistance(points([0, 200, 400], [0, 10, 20]), [0, 10, 20], 200),
+    5,
+    'the shared 100 m local-gradient calculation preserves sparse-route behaviour',
+);
+equal(
+    localGradeAtDistance(points([0, 0, 100], [0, 1, 6]), [0, 1, 6], 0),
+    6,
+    'the shared local-gradient calculation safely spans duplicate-distance points',
+);
 
 const descent = analyseTerrain(points([0, 200, 400], [20, 10, 0]), settings());
 equal(descent.sections[0].k, 'descent', 'a sustained negative grade is a descent');

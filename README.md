@@ -20,7 +20,7 @@ The app also includes **Bob Graham — Luke’s Version** as a bundled example r
 - Compare any selection of saved curves on shared pace and speed charts; optionally add dashed VAM overlays.
 - Select the curve used for route and recorded-activity predictions from the route results.
 - Export the complete curve library as a JSON backup and import it later. Imports add validated curves without replacing existing ones.
-- Existing single-curve browser data is migrated automatically the first time the named curve library is loaded.
+- Existing saved multi-curve libraries are retained and migrated to versioned storage. Obsolete standalone single-curve data is ignored so browsers without a current library start with the four built-ins.
 
 ## Principles
 
@@ -42,8 +42,10 @@ The app also includes **Bob Graham — Luke’s Version** as a bundled example r
 - `src/core.ts` contains reusable, DOM-independent distance, formatting, persistence, and route-matching calculations.
 - `src/terrain.ts` contains the DOM-independent terrain smoothing, classification, bridging, and subsection engine.
 - `src/waypoints.ts` defines the shared endpoint-elevation and segment-geometry rules for waypoint analysis.
+- `src/pace.ts` contains pace/VAM parsing, validation, interpolation, and cumulative route prediction.
+- `src/paceLibrary.ts` defines versioned browser-storage data and migration from earlier curve formats.
 - `src/main.ts` currently owns browser state, GPX XML extraction, charts, tables, and exports; the staged split is tracked in `REFACTOR.md`.
-- `tests/core.test.ts`, `tests/terrain.test.ts`, and `tests/waypoints.test.ts` contain regression coverage for the calculation core, terrain rules, and waypoint geometry.
+- `tests/*.test.ts` contains regression coverage for the calculation core, terrain rules, waypoint geometry, pace prediction, and pace-library migration.
 
 ## Getting started
 

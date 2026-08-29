@@ -8,16 +8,25 @@ import {
     formatPace,
     haversineMeters,
     isConfidentRouteMatch,
-    isPaceCurvePoint,
-    isStoredPaceCurve,
     matchRouteSamples,
-    parsePaceCurveBackup,
     selectLongestRouteChain,
     type PaceCurvePoint,
     type RouteMatchQuality,
     type StoredPaceCurve,
 } from './core';
-import { analyseTerrain } from './terrain';
+import {
+    createPaceInterpolator,
+    isSemanticallyValidPacePoint,
+    pacePointInput,
+    pacePointMethod,
+    pacePointSeconds,
+    parseValidatedPaceCurveBackup,
+    predictRoutePace,
+    resolvePaceCurve,
+    type RoutePacePrediction,
+} from './pace';
+import { createPaceLibraryState, parsePaceLibraryStorage } from './paceLibrary';
+import { analyseTerrain, localGradeAtDistance } from './terrain';
 import type {
     PrimaryTerrainSection as M,
     TerrainKind as K,
@@ -58,11 +67,7 @@ type ActivityPoint = {
     segment: number;
     breakBefore: boolean;
 };
-type RoutePrediction = {
-    cumulative: number[];
-    seconds: number[];
-};
-let activity: ActivityPoint[] = [], routePrediction: RoutePrediction | null = null, activityMatchQuality: RouteMatchQuality | null = null;
+let activity: ActivityPoint[] = [], routePrediction: RoutePacePrediction | null = null, activityMatchQuality: RouteMatchQuality | null = null;
 const A = document.querySelector<HTMLDivElement>('#app')!, C: Record<K, string> = { climb: '#c84735', descent: '#31805a', flat: '#607183', rolling: '#b67812' };
 let p: P[] = [], waypoints: W[] = [], routeName = '', routeWaypoints: RouteWaypoint[] = [], ss: S[] = [], ms: M[] = [], tot = { up: 0, down: 0 }, profile: number[] = [], routeWarnings: string[] = [], hovered: number | null = null, hoverDistance: number | null = null, selectionStart: number | null = null, selectionEnd: number | null = null, viewStart = 0, viewEnd = Infinity;
 function routeWaypointGeometry(start: RouteWaypoint, end: RouteWaypoint) {
@@ -143,22 +148,21 @@ header.prepend(pageNav);
 window.addEventListener('hashchange', () => location.reload());
 type PacePoint = PaceCurvePoint;
 type SavedPaceCurve = StoredPaceCurve;
-const legacyPaceStorage = 'route-analyser.pace-curve', paceLibraryStorage = 'route-analyser.pace-curves', selectedPaceCurveStorage = 'route-analyser.selected-pace-curve', createPaceCurveId = () => typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `curve-${Date.now()}-${Math.random().toString(36).slice(2)}`, cloneBuiltInPaceCurve = (curve: BuiltInPaceCurve = builtInPaceCurves[0]) => curve.points.map(point => ({ ...point })), createBuiltInPaceLibrary = (): SavedPaceCurve[] => builtInPaceCurves.map(curve => ({ id: createPaceCurveId(), name: curve.name, points: cloneBuiltInPaceCurve(curve) })), loadPaceLibrary = (): SavedPaceCurve[] => {
+const paceLibraryStorage = 'route-analyser.pace-curves', selectedPaceCurveStorage = 'route-analyser.selected-pace-curve', createPaceCurveId = () => typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `curve-${Date.now()}-${Math.random().toString(36).slice(2)}`, cloneBuiltInPaceCurve = (curve: BuiltInPaceCurve = builtInPaceCurves[0]) => curve.points.map(point => ({ ...point })), createBuiltInPaceLibrary = (): SavedPaceCurve[] => builtInPaceCurves.map(curve => ({ id: createPaceCurveId(), name: curve.name, points: cloneBuiltInPaceCurve(curve) })), loadPaceLibrary = () => {
     try {
         const stored = JSON.parse(localStorage.getItem(paceLibraryStorage) || 'null');
-        if (Array.isArray(stored) && stored.length && stored.every(isStoredPaceCurve))
-            return stored.map(curve => ({ ...curve, points: curve.points.map(point => ({ ...point })) }));
-        const legacy = JSON.parse(localStorage.getItem(legacyPaceStorage) || 'null');
-        if (Array.isArray(legacy) && legacy.every(isPaceCurvePoint))
-            return [{ id: createPaceCurveId(), name: 'My pace curve', points: legacy.map(point => ({ ...point })) }];
-        return createBuiltInPaceLibrary();
+        const library = parsePaceLibraryStorage(stored);
+        if (library)
+            return library;
+        return { curves: createBuiltInPaceLibrary(), migrated: false };
     }
     catch {
-        return createBuiltInPaceLibrary();
+        return { curves: createBuiltInPaceLibrary(), migrated: false };
     }
 };
-let paceCurves = loadPaceLibrary(), activePaceCurveId = (() => { try {
-    return localStorage.getItem(selectedPaceCurveStorage) || paceCurves[0].id;
+const loadedPaceLibrary = loadPaceLibrary();
+let paceCurves = loadedPaceLibrary.curves, activePaceCurveId = (() => { try {
+    return localStorage.getItem(selectedPaceCurveStorage) || loadedPaceLibrary.selectedCurveId || paceCurves[0].id;
 }
 catch {
     return paceCurves[0].id;
@@ -229,11 +233,9 @@ if (paceOnly) {
 }
 pacePanel.querySelector('thead tr')!.innerHTML = '<th>Grade</th><th>Method</th><th>Pace / VAM</th><th></th>';
 pacePanel.querySelector('#pace-note')!.textContent = 'Pace is min/km. VAM is vertical metres per hour.';
-const paceSeconds = (pace: string) => { const match = /^(\d{1,2}):(\d{2})$/.exec(pace.trim()); if (!match || Number(match[2]) > 59)
-    return null; return Number(match[1]) * 60 + Number(match[2]); }, paceMode = (point: PacePoint) => point.pace.startsWith('vam:') ? 'vam' : 'pace', paceInput = (point: PacePoint) => paceMode(point) === 'vam' ? point.pace.slice(4) : point.pace, paceValue = (point: PacePoint) => { if (paceMode(point) === 'pace')
-    return paceSeconds(point.pace); const vam = Number(paceInput(point)); return point.grade !== 0 && Number.isFinite(vam) && vam > 0 ? 36000 * Math.abs(point.grade) / vam : null; }, paceText = formatPace;
+const paceMode = pacePointMethod, paceInput = pacePointInput, paceValue = (point: PacePoint) => isSemanticallyValidPacePoint(point) ? pacePointSeconds(point) : null, paceText = formatPace;
 const savePace = () => { const curve = activePaceCurve(); curve.points = pacePoints; try {
-    localStorage.setItem(paceLibraryStorage, JSON.stringify(paceCurves));
+    localStorage.setItem(paceLibraryStorage, JSON.stringify(createPaceLibraryState(paceCurves, activePaceCurveId)));
     localStorage.setItem(selectedPaceCurveStorage, activePaceCurveId);
     return true;
 }
@@ -244,7 +246,7 @@ catch {
 function renderPace() {
     paceRows.innerHTML = pacePoints.map((point, index) => {
         const mode = paceMode(point), equivalent = paceValue(point), vam = equivalent !== null && point.grade !== 0 ? Math.round(36000 * Math.abs(point.grade) / equivalent) : null, equivalentText = equivalent === null ? '' : mode === 'vam' ? `≈ ${paceText(equivalent)}/km` : vam === null ? '' : `≈ ${vam} m/h`;
-        return `<tr><td><input data-grade="${index}" type="number" step=".5" value="${point.grade}">%</td><td><select data-mode="${index}"><option value="pace" ${mode === 'pace' ? 'selected' : ''}>Pace</option><option value="vam" ${mode === 'vam' ? 'selected' : ''}>VAM</option></select></td><td><input data-pace="${index}" type="text" inputmode="numeric" placeholder="${mode === 'vam' ? '600' : '6:30'}" value="${escapeHtml(paceInput(point))}"> ${mode === 'vam' ? 'm/h' : ''}${equivalentText ? ` <small>${equivalentText}</small>` : ''}</td><td><button data-remove="${index}" type="button" aria-label="Remove pace point">×</button></td></tr>`;
+        return `<tr><td><input data-grade="${index}" type="number" min="-100" max="100" step=".5" value="${point.grade}">%</td><td><select data-mode="${index}"><option value="pace" ${mode === 'pace' ? 'selected' : ''}>Pace</option><option value="vam" ${mode === 'vam' ? 'selected' : ''}>VAM</option></select></td><td><input data-pace="${index}" type="text" inputmode="numeric" placeholder="${mode === 'vam' ? '600' : '6:30'}" value="${escapeHtml(paceInput(point))}"> ${mode === 'vam' ? 'm/h' : ''}${equivalentText ? ` <small>${equivalentText}</small>` : ''}</td><td><button data-remove="${index}" type="button" aria-label="Remove pace point">×</button></td></tr>`;
     }).join('');
 }
 paceRows.addEventListener('input', event => { const input = event.target as HTMLInputElement, index = Number(input.dataset.grade ?? input.dataset.pace); if (input.dataset.grade !== undefined)
@@ -264,9 +266,7 @@ paceRows.addEventListener('click', event => { const button = (event.target as HT
 addPace.onclick = () => { pacePoints.push({ grade: (pacePoints.length ? Math.max(...pacePoints.map(point => point.grade)) : 0) + 5, pace: '' }); savePace(); renderPace(); redrawHorizontalVamGuides(); };
 renderPace();
 let hoveredPaceGrade: number | null = null, hoveredSpeedGrade: number | null = null;
-const curvePoints = () => pacePoints.map(point => ({ ...point, seconds: paceValue(point) })).filter((point): point is PacePoint & {
-    seconds: number;
-} => point.seconds !== null).sort((a, b) => a.grade - b.grade);
+const curvePoints = () => resolvePaceCurve(pacePoints);
 function curveBounds(points: (PacePoint & {
     seconds: number;
 })[]) { const minGrade = Math.min(0, Math.floor(Math.min(...points.map(point => point.grade)) / 5) * 5), maxGrade = Math.max(0, Math.ceil(Math.max(...points.map(point => point.grade)) / 5) * 5); return { minGrade, maxGrade }; }
@@ -296,7 +296,7 @@ type ComparedPaceCurve = {
     color: string;
     points: Array<PacePoint & { seconds: number }>;
 };
-const comparisonColors = ['#2563eb', '#c84735', '#31805a', '#8b5cf6', '#d97706', '#0891b2', '#db2777', '#4f46e5', '#65a30d', '#b45309'], paceCurveColor = (id: string) => comparisonColors[Math.max(0, paceCurves.findIndex(curve => curve.id === id)) % comparisonColors.length], comparedPaceCurves = (): ComparedPaceCurve[] => paceCurves.filter(curve => paceChartPreferences.curveIds.includes(curve.id)).map(curve => ({ curve, color: paceCurveColor(curve.id), points: curve.points.map(point => ({ ...point, seconds: paceValue(point) })).filter((point): point is PacePoint & { seconds: number } => point.seconds !== null).sort((a, b) => a.grade - b.grade) })), savePaceChartPreferences = () => { try {
+const comparisonColors = ['#2563eb', '#c84735', '#31805a', '#8b5cf6', '#d97706', '#0891b2', '#db2777', '#4f46e5', '#65a30d', '#b45309'], paceCurveColor = (id: string) => comparisonColors[Math.max(0, paceCurves.findIndex(curve => curve.id === id)) % comparisonColors.length], comparedPaceCurves = (): ComparedPaceCurve[] => paceCurves.filter(curve => paceChartPreferences.curveIds.includes(curve.id)).map(curve => ({ curve, color: paceCurveColor(curve.id), points: resolvePaceCurve(curve.points) })), savePaceChartPreferences = () => { try {
     localStorage.setItem(paceChartPreferencesStorage, JSON.stringify(paceChartPreferences));
 }
 catch {
@@ -655,7 +655,7 @@ importPaceCurves.onchange = async () => {
     try {
         if (file.size > 2_000_000)
             throw Error('This backup is too large to import.');
-        const value = parsePaceCurveBackup(JSON.parse(await file.text()));
+        const value = parseValidatedPaceCurveBackup(JSON.parse(await file.text()));
         if (!value)
             throw Error('This is not a valid Route Analyser pace-curve backup.');
         const imported = value.curves;
@@ -955,19 +955,7 @@ function analyse() {
 function buildRoutePrediction() { const curve = curvePoints(); if (curve.length < 2 || !p.length || profile.length !== p.length) {
     routePrediction = null;
     return null;
-} const paceAt = (grade: number) => { if (grade <= curve[0].grade)
-    return curve[0].seconds; if (grade >= curve.at(-1)!.grade)
-    return curve.at(-1)!.seconds; const upper = curve.find(point => point.grade >= grade)!, lower = curve[curve.indexOf(upper) - 1]; return lower.seconds + (upper.seconds - lower.seconds) * (grade - lower.grade) / (upper.grade - lower.grade); }, cumulative = [0], seconds = [0]; for (let i = 1; i < p.length; i++) {
-    const distance = p[i].d - p[i - 1].d;
-    if (distance <= 0) {
-        seconds.push(0);
-        cumulative.push(cumulative[i - 1]);
-        continue;
-    }
-    const midpoint = (p[i].d + p[i - 1].d) / 2, a = locate(Math.max(0, midpoint - 50)), b = locate(Math.min(p.at(-1)!.d, midpoint + 50)), profileDistance = p[b].d - p[a].d, grade = b === a || profileDistance <= 0 ? 0 : (profile[b] - profile[a]) / profileDistance * 100, segment = distance / 1000 * paceAt(grade);
-    seconds.push(segment);
-    cumulative.push(cumulative[i - 1] + segment);
-} return routePrediction = { cumulative, seconds }; }
+} return routePrediction = predictRoutePace(p, profile, curve); }
 function parseActivity(text: string): ActivityPoint[] {
     const xml = new DOMParser().parseFromString(text, 'application/xml');
     if (xml.querySelector('parsererror'))
@@ -1053,7 +1041,7 @@ function activityGradientSamples() { const samples: {
     const distance = activity[end].routeD - activity[start].routeD;
     if (distance < 100)
         continue;
-    const seconds = activity[end].moving - activity[start].moving, midpoint = (activity[end].routeD + activity[start].routeD) / 2, a = locate(Math.max(0, midpoint - 50)), b = locate(Math.min(p.at(-1)!.d, midpoint + 50)), profileDistance = p[b].d - p[a].d, grade = profileDistance > 0 ? (profile[b] - profile[a]) / profileDistance * 100 : 0, pace = seconds / (distance / 1000);
+    const seconds = activity[end].moving - activity[start].moving, midpoint = (activity[end].routeD + activity[start].routeD) / 2, grade = localGradeAtDistance(p, profile, midpoint), pace = seconds / (distance / 1000);
     if (seconds > 0 && Number.isFinite(pace) && pace > 30 && pace < 7200)
         samples.push({ grade, pace });
     start = end;
@@ -1190,9 +1178,7 @@ function renderWaypointSegments() {
         waypointSegmentPanel.hidden = true;
         return;
     }
-    const curve = curvePoints(), canEstimate = paceEstimate !== null && curve.length >= 2 && profile.length === p.length, paceAt = (grade: number) => { if (grade <= curve[0].grade)
-        return curve[0].seconds; if (grade >= curve.at(-1)!.grade)
-        return curve.at(-1)!.seconds; const upper = curve.find(point => point.grade >= grade)!, lower = curve[curve.indexOf(upper) - 1]; return lower.seconds + (upper.seconds - lower.seconds) * (grade - lower.grade) / (upper.grade - lower.grade); };
+    const curve = curvePoints(), canEstimate = paceEstimate !== null && routePrediction !== null && curve.length >= 2 && profile.length === p.length, paceAt = curve.length >= 2 ? createPaceInterpolator(curve) : null;
     let totalUp = 0, totalDown = 0, averageCumulative = 0, detailedCumulative = 0, ascentAverageSeconds = 0, descentAverageSeconds = 0, ascentDetailedSeconds = 0, descentDetailedSeconds = 0, ascentDistance = 0, descentDistance = 0;
     const rows = routeWaypoints.slice(1).map((end, position) => {
         const start = routeWaypoints[position], { waypoint, index } = end, geometry = routeWaypointGeometry(start, end), distance = geometry.distance, change = geometry.elevationChange, grade = geometry.averageGrade;
@@ -1206,17 +1192,12 @@ function renderWaypointSegments() {
             descentDistance += distance;
             totalDown -= change;
         }
-        let detailedSeconds = 0;
-        for (let i = start.index + 1; i <= index; i++) {
-            const segmentDistance = p[i].d - p[i - 1].d;
-            if (canEstimate) {
-                const midpoint = (p[i].d + p[i - 1].d) / 2, a = locate(Math.max(0, midpoint - 50)), b = locate(Math.min(p.at(-1)!.d, midpoint + 50)), localDistance = p[b].d - p[a].d, localGrade = b === a || localDistance <= 0 ? 0 : (profile[b] - profile[a]) / localDistance * 100;
-                detailedSeconds += segmentDistance / 1000 * paceAt(localGrade);
-            }
-        }
+        const detailedSeconds = canEstimate
+            ? routePrediction!.cumulative[index] - routePrediction!.cumulative[start.index]
+            : 0;
         let averagePace = '—', averageVam = '—', averageTime = '—', averageRunning = '—', detailedPace = '—', detailedVam = '—', detailedTime = '—', detailedRunning = '—';
         if (canEstimate) {
-            const averageSeconds = distance / 1000 * paceAt(grade);
+            const averageSeconds = distance / 1000 * paceAt!(grade);
             averageCumulative += averageSeconds;
             detailedCumulative += detailedSeconds;
             if (change > 0) {
@@ -1274,20 +1255,7 @@ function runPaceAnalysis() { const curve = curvePoints(); if (curve.length < 2) 
     predictionPanel.hidden = false;
     predictionPanel.innerHTML = `<h2>Predicted time</h2><p>The selected curve, <b>${escapeHtml(activePaceCurve().name)}</b>, needs at least two valid pace or VAM points. Edit it on the <a href="./#pace">pace curve</a> page.</p>`;
     return;
-} const paceAt = (grade: number) => { if (grade <= curve[0].grade)
-    return curve[0].seconds; if (grade >= curve.at(-1)!.grade)
-    return curve.at(-1)!.seconds; const upper = curve.find(point => point.grade >= grade)!, lower = curve[curve.indexOf(upper) - 1]; return lower.seconds + (upper.seconds - lower.seconds) * (grade - lower.grade) / (upper.grade - lower.grade); }, sections = ms.map(() => 0); let total = 0, primaryIndex = 0; for (let i = 1; i < p.length; i++) {
-    const distance = p[i].d - p[i - 1].d;
-    if (distance <= 0)
-        continue;
-    const midpoint = (p[i - 1].d + p[i].d) / 2, a = locate(Math.max(0, midpoint - 50)), b = locate(Math.min(p.at(-1)!.d, midpoint + 50)), profileDistance = p[b].d - p[a].d, grade = b === a || profileDistance <= 0 ? 0 : (profile[b] - profile[a]) / profileDistance * 100, seconds = distance / 1000 * paceAt(grade);
-    total += seconds;
-    while (primaryIndex < ms.length - 1 && i - 1 >= ms[primaryIndex].b)
-        primaryIndex++;
-    const section = ms[primaryIndex];
-    if (section && i - 1 >= section.a && i <= section.b)
-        sections[primaryIndex] += seconds;
-} paceEstimate = { total, sections }; buildRoutePrediction(); predictionPanel.hidden = true; render(profile); renderPaceColumns(); addSummaryGradients(); renderWaypointSegments(); syncSubsectionToggle(); if (activity.length)
+} const prediction = buildRoutePrediction()!, sections = ms.map(section => prediction.cumulative[section.b] - prediction.cumulative[section.a]), total = prediction.cumulative.at(-1)!; paceEstimate = { total, sections }; predictionPanel.hidden = true; render(profile); renderPaceColumns(); addSummaryGradients(); renderWaypointSegments(); syncSubsectionToggle(); if (activity.length)
     renderActivityAnalysis(); }
 function vamValue(elevationChange: number, seconds: number) { return seconds > 0 && Number.isFinite(elevationChange) ? elevationChange * 3600 / seconds : null; }
 function vamText(elevationChange: number, seconds: number) { const value = vamValue(elevationChange, seconds); return value === null ? '—' : `${value > 0 ? '+' : value < 0 ? '−' : ''}${Math.round(Math.abs(value))} m/h`; }
@@ -1319,7 +1287,7 @@ function draw(e: number[]) {
     const c = chart.getContext('2d')!;
     c.scale(q, q);
     const W = r.width, H = r.height, L = 50, R = 14, T = 14, B = showWaypoints.checked && routeWaypoints.some(({ index }) => index >= first && index <= last) ? 108 : 30, D = Math.max(1, viewEnd - viewStart), X = (d: number) => L + (d - viewStart) / D * (W - L - R), Y = (z: number) => T + (lo + hi - z) / hi * (H - T - B), threshold = val('#grade');
-    const localGrade = (i: number) => { const a = locate(Math.max(0, p[i].d - 50)), b = locate(Math.min(total, p[i].d + 50)); return b === a ? 0 : (e[b] - e[a]) / (p[b].d - p[a].d) * 100; }, gradientColour = (i: number) => { const grade = localGrade(i); if (grade >= threshold + 7)
+    const localGrade = (i: number) => localGradeAtDistance(p, e, p[i].d), gradientColour = (i: number) => { const grade = localGrade(i); if (grade >= threshold + 7)
         return '#a52f24'; if (grade >= threshold + 3)
         return '#d66a35'; if (grade >= threshold)
         return '#d99939'; if (grade <= -threshold - 7)
@@ -1422,9 +1390,7 @@ function downloadAnalysisCsv() {
         number,
         string | number | boolean | null | undefined
     ][]) => { const output = Array(header.length).fill(''); cells.forEach(([index, value]) => { if (value !== undefined && value !== null)
-        output[index] = String(value); }); rows.push(output); }, curve = curvePoints(), hasCurve = curve.length >= 2, paceAt = (grade: number) => { if (grade <= curve[0].grade)
-        return curve[0].seconds; if (grade >= curve.at(-1)!.grade)
-        return curve.at(-1)!.seconds; const upper = curve.find(point => point.grade >= grade)!, lower = curve[curve.indexOf(upper) - 1]; return lower.seconds + (upper.seconds - lower.seconds) * (grade - lower.grade) / (upper.grade - lower.grade); };
+        output[index] = String(value); }); rows.push(output); }, curve = curvePoints(), hasCurve = curve.length >= 2, paceAt = hasCurve ? createPaceInterpolator(curve) : null;
     [['route_distance_m', p.at(-1)?.d ?? 0], ['total_ascent_m', tot.up], ['total_descent_m', tot.down], ['predicted_route_time_s', paceEstimate?.total ?? ''], ['selected_pace_curve_name', activePaceCurve().name], ['selected_pace_curve_id', activePaceCurveId], ['grade_threshold_percent', val('#grade')], ['rolling_window_m', val('#window')], ['minimum_section_m', val('#min')], ['flat_rolling_bridge_m', val('#bridge')], ['profile_smoothing_m', Number(profileSmoothing.value)], ['counter_slope_bridge_enabled', counterBridge.checked], ['counter_slope_bridge_m', Number(counterBridgeLength.value)], ['counter_slope_reversal_percent', Number(counterReversal.value)], ['recording_gap_cutoff_s', Number(activityPause.value)], ['stationary_rest_detection', activityRestDetection.checked], ['minimum_moving_speed_kmh', Number(activityMovingSpeed.value)], ['route_parse_warnings', routeWarnings.join(' ')]].forEach(([key, value]) => add([[0, 'setting'], [24, String(key)], [25, String(value)]]));
     pacePoints.forEach(point => add([[0, 'pace_curve_point'], [24, activePaceCurve().name], [25, `grade=${point.grade}; value=${point.pace}`]]));
     let cumulative = 0;
@@ -1432,13 +1398,9 @@ function downloadAnalysisCsv() {
         cumulative += seconds; add([[0, 'terrain_section'], [1, index + 1], [3, section.k], [4, section.k], [7, a.d], [8, b.d], [9, distance], [10, change], [11, distance > 0 ? change / distance * 100 : undefined], [12, seconds], [13, seconds === undefined || distance <= 0 ? undefined : seconds / (distance / 1000)], [14, seconds === undefined ? undefined : vamValue(change, seconds)], [15, seconds === undefined ? undefined : cumulative]]); section.c.forEach((child, childIndex) => { const start = p[child.a], end = p[child.b], childDistance = end.d - start.d, childChange = end.ele! - start.ele!, childSeconds = routePrediction ? routePrediction.cumulative[child.b] - routePrediction.cumulative[child.a] : undefined; add([[0, 'terrain_subsection'], [1, `${index + 1}.${childIndex + 1}`], [2, index + 1], [3, child.k], [4, child.label], [7, start.d], [8, end.d], [9, childDistance], [10, childChange], [11, childDistance > 0 ? childChange / childDistance * 100 : undefined], [12, childSeconds], [13, childSeconds === undefined || childDistance <= 0 ? undefined : childSeconds / (childDistance / 1000)], [14, childSeconds === undefined ? undefined : vamValue(childChange, childSeconds)], [15, routePrediction?.cumulative[child.b]]]); }); });
     routeWaypoints.forEach(({ waypoint, index }) => { const point = p[index]; add([[0, 'waypoint'], [5, waypoint.name], [7, point.d], [9, 0], [10, waypoint.ele ?? point.ele!]]); });
     let averageCumulative = 0, detailedCumulative = 0;
-    routeWaypoints.slice(1).forEach((end, position) => { const start = routeWaypoints[position], { waypoint, index } = end, geometry = routeWaypointGeometry(start, end), distance = geometry.distance, change = geometry.elevationChange, grade = geometry.averageGrade; let averageSeconds: number | undefined, detailedSeconds: number | undefined; if (distance > 0 && hasCurve && paceEstimate) {
-        averageSeconds = distance / 1000 * paceAt(grade);
-        detailedSeconds = 0;
-        for (let i = start.index + 1; i <= index; i++) {
-            const segmentDistance = p[i].d - p[i - 1].d, midpoint = (p[i].d + p[i - 1].d) / 2, a = locate(Math.max(0, midpoint - 50)), b = locate(Math.min(p.at(-1)!.d, midpoint + 50)), localDistance = p[b].d - p[a].d, localGrade = b === a || localDistance <= 0 ? 0 : (profile[b] - profile[a]) / localDistance * 100;
-            detailedSeconds += segmentDistance / 1000 * paceAt(localGrade);
-        }
+    routeWaypoints.slice(1).forEach((end, position) => { const start = routeWaypoints[position], { waypoint, index } = end, geometry = routeWaypointGeometry(start, end), distance = geometry.distance, change = geometry.elevationChange, grade = geometry.averageGrade; let averageSeconds: number | undefined, detailedSeconds: number | undefined; if (distance > 0 && hasCurve && paceEstimate && routePrediction) {
+        averageSeconds = distance / 1000 * paceAt!(grade);
+        detailedSeconds = routePrediction.cumulative[index] - routePrediction.cumulative[start.index];
         averageCumulative += averageSeconds;
         detailedCumulative += detailedSeconds;
     } add([[0, 'waypoint_segment'], [5, start.waypoint.name], [6, waypoint.name], [7, p[start.index].d], [8, p[index].d], [9, distance], [10, change], [11, distance > 0 ? grade : undefined], [16, averageSeconds], [17, averageSeconds === undefined || distance <= 0 ? undefined : averageSeconds / (distance / 1000)], [18, averageSeconds === undefined ? undefined : vamValue(change, averageSeconds)], [19, averageSeconds === undefined ? undefined : averageCumulative], [20, detailedSeconds], [21, detailedSeconds === undefined || distance <= 0 ? undefined : detailedSeconds / (distance / 1000)], [22, detailedSeconds === undefined ? undefined : vamValue(change, detailedSeconds)], [23, detailedSeconds === undefined ? undefined : detailedCumulative]]); });

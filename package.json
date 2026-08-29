@@ -7,9 +7,9 @@
   "scripts": {
     "dev": "vite --configLoader runner",
     "typecheck": "tsc --noEmit",
-    "test": "tsc -p tsconfig.test.json && node .test-build/tests/core.test.js && node .test-build/tests/terrain.test.js && node .test-build/tests/waypoints.test.js",
-    "check": "tsc --noEmit && tsc -p tsconfig.test.json && node .test-build/tests/core.test.js && node .test-build/tests/terrain.test.js && node .test-build/tests/waypoints.test.js",
-    "build": "tsc --noEmit && tsc -p tsconfig.test.json && node .test-build/tests/core.test.js && node .test-build/tests/terrain.test.js && node .test-build/tests/waypoints.test.js && vite build --configLoader runner",
+    "test": "tsc -p tsconfig.test.json && node .test-build/tests/regression.test.js",
+    "check": "tsc --noEmit && tsc -p tsconfig.test.json && node .test-build/tests/regression.test.js",
+    "build": "tsc --noEmit && tsc -p tsconfig.test.json && node .test-build/tests/regression.test.js && vite build --configLoader runner",
     "preview": "vite preview --configLoader runner"
   },
   "devDependencies": {
