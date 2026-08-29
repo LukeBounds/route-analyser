@@ -46,8 +46,9 @@ The app also includes **Bob Graham — Luke’s Version** as a bundled example r
 - `src/paceLibrary.ts` defines versioned browser-storage data and migration from earlier curve formats.
 - `src/viewModels.ts` derives route summaries and complete terrain and waypoint rows independently of the DOM.
 - `src/templates.ts` contains the stable route and pace workspace templates.
-- `src/main.ts` currently owns browser state, GPX XML extraction, charts, DOM rendering, and exports; the remaining staged split is tracked in `REFACTOR.md`.
-- `tests/*.test.ts` contains regression coverage for the calculation core, terrain rules, waypoint geometry, pace prediction, pace-library migration, view models, and page-template invariants.
+- `src/charts/` contains shared canvas utilities plus the terrain, curve-comparison, and recorded-activity renderers.
+- `src/main.ts` currently owns browser state, GPX XML extraction, DOM rendering, and exports; the remaining staged split is tracked in `REFACTOR.md`.
+- `tests/*.test.ts` contains regression coverage for the calculation core, terrain rules, waypoint geometry, pace prediction, pace-library migration, view models, page-template invariants, and long-input chart bounds.
 
 ## Getting started
 

@@ -160,12 +160,14 @@ Phase 3 result: `src/viewModels.ts` now derives route summaries and complete ter
 
 ### Phase 4 — extract and improve charts
 
-- [ ] Extract the terrain profile chart.
-- [ ] Share pace/speed comparison chart infrastructure.
-- [ ] Extract activity charts.
-- [ ] Add resize-driven redraws.
-- [ ] Replace large array spreads with iterative bounds calculations.
-- [ ] Preserve table/text alternatives and improve keyboard access where practical.
+- [x] Extract the terrain profile chart.
+- [x] Share pace/speed comparison chart infrastructure.
+- [x] Extract activity charts.
+- [x] Add resize-driven redraws.
+- [x] Replace large array spreads with iterative bounds calculations.
+- [x] Preserve table/text alternatives and improve keyboard access where practical.
+
+Phase 4 result: chart rendering now lives under `src/charts/`. Pace and speed use one configurable comparison renderer, activity charts share canvas preparation, and the terrain renderer owns its complete profile drawing path. Bounds are calculated by iteration rather than large function-argument spreads, including long activity match errors and joined GPX segments. Window and application-width changes schedule a redraw. Terrain table rows are keyboard-focusable and Enter/Space performs the same plot focus action as a click; canvas fallback text points to the corresponding tables and summaries.
 
 ### Phase 5 — hardening
 

@@ -125,7 +125,8 @@ export function joinNearbySegments<T extends GeoPoint>(segments: T[][], maximumG
             continue;
         }
         const duplicateBoundary = haversineMeters(previous.at(-1)!, segment[0]) < 0.01;
-        previous.push(...segment.slice(duplicateBoundary ? 1 : 0));
+        for (let index = duplicateBoundary ? 1 : 0; index < segment.length; index++)
+            previous.push(segment[index]);
     }
     return chains;
 }
@@ -272,7 +273,8 @@ class RouteGrid {
         const candidates: number[] = [];
         for (let y = latitude - 2; y <= latitude + 2; y++) {
             for (let x = longitude - 2; x <= longitude + 2; x++) {
-                candidates.push(...(this.cells.get(`${y}:${x}`) ?? []));
+                for (const index of this.cells.get(`${y}:${x}`) ?? [])
+                    candidates.push(index);
             }
         }
         return candidates;
@@ -318,11 +320,14 @@ function matchDirection(route: Array<GeoPoint & { d: number }>, samples: GeoPoin
         errors.push(error);
     }
     const progress = indices.length < 2 ? 0 : Math.abs(route[indices.at(-1)!].d - route[indices[0]].d);
+    let maxError = 0;
+    for (const error of errors)
+        maxError = Math.max(maxError, error);
     const quality: RouteMatchQuality = {
         orientation: direction === 1 ? 'forward' : 'reverse',
         medianError: percentile(errors, 0.5),
         p90Error: percentile(errors, 0.9),
-        maxError: Math.max(...errors),
+        maxError,
         within150m: errors.filter(error => error <= 150).length / Math.max(1, errors.length) * 100,
         progress,
     };

@@ -29,7 +29,7 @@ export function routePageTemplate() {
                 <div id="stats"></div>
                 <div id="plot-range"><label>View from <input id="view-start" type="number" min="0" step="0.01"> km</label><label>to <input id="view-end" type="number" min="0" step="0.01"> km</label><button id="view-full" type="button">Full route</button><span>Click a table row to focus its primary section.</span></div>
                 <div class="legend"><span class="climb">● Climb</span><span class="descent">● Descent</span><span class="flat">● Flat</span><span class="rolling">● Rolling</span></div>
-                <canvas id="chart" aria-label="Terrain colour coded elevation profile"></canvas>
+                <canvas id="chart" aria-label="Terrain colour coded elevation profile">The terrain sections and their numerical values are available in the table below.</canvas>
                 <div class="table"><table><thead></thead><tbody id="rows"></tbody></table></div>
             </section>
         </div>
@@ -51,10 +51,10 @@ export function pacePageTemplate(curves: BuiltInPaceCurve[]) {
                 <div id="curve-chart-legend"></div>
             </fieldset>
             <h3 id="pace-chart-heading">Pace comparison</h3>
-            <canvas id="pace-chart" aria-label="Pace curve comparison"></canvas>
+            <canvas id="pace-chart" aria-label="Pace curve comparison">The selected curves' editable gradient points are listed in the Curve data table.</canvas>
             <p id="pace-note">Pace is min/km. VAM is vertical metres per hour.</p>
             <h3 id="speed-chart-heading">Speed comparison</h3>
-            <canvas id="speed-chart" aria-label="Personal speed curve"></canvas>
+            <canvas id="speed-chart" aria-label="Personal speed curve">The selected curves' editable gradient points are listed in the Curve data table.</canvas>
             <label class="vam-guides"><input type="checkbox"> Show VAM gridlines</label>
         </section>
         <section class="pace-workspace-section">

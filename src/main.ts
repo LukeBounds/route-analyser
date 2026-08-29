@@ -1,6 +1,18 @@
 import './style.css';
 import './pace.css';
 import { builtInPaceCurves, type BuiltInPaceCurve } from './builtInPaceCurves';
+import { maximumValue } from './charts/canvas';
+import {
+    drawActivityComparisonChart,
+    drawActivityGradientChart,
+    type ActivityGradientSample,
+} from './charts/activityCharts';
+import {
+    drawCurveComparisonChart,
+    hoveredComparisonGrade,
+    type CurveComparisonSeries,
+} from './charts/curveComparisonChart';
+import { drawTerrainProfile, terrainDistanceAt } from './charts/terrainProfileChart';
 import {
     accumulateSegments,
     escapeHtml,
@@ -235,20 +247,15 @@ paceRows.addEventListener('change', event => { const input = event.target as HTM
 paceRows.addEventListener('click', event => { const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button'); if (!button)
     return; if (button.dataset.remove === undefined)
     return; pacePoints.splice(Number(button.dataset.remove), 1); savePace(); renderPace(); redrawHorizontalVamGuides(); });
-addPace.onclick = () => { pacePoints.push({ grade: (pacePoints.length ? Math.max(...pacePoints.map(point => point.grade)) : 0) + 5, pace: '' }); savePace(); renderPace(); redrawHorizontalVamGuides(); };
+addPace.onclick = () => { pacePoints.push({ grade: maximumValue(pacePoints, point => point.grade, 0) + 5, pace: '' }); savePace(); renderPace(); redrawHorizontalVamGuides(); };
 renderPace();
 let hoveredPaceGrade: number | null = null, hoveredSpeedGrade: number | null = null;
 const curvePoints = () => resolvePaceCurve(pacePoints);
-function curveBounds(points: (PacePoint & {
-    seconds: number;
-})[]) { const minGrade = Math.min(0, Math.floor(Math.min(...points.map(point => point.grade)) / 5) * 5), maxGrade = Math.max(0, Math.ceil(Math.max(...points.map(point => point.grade)) / 5) * 5); return { minGrade, maxGrade }; }
-function findHoveredComparisonGrade(canvas: HTMLCanvasElement, event: PointerEvent) { const points = comparedPaceCurves().flatMap(item => item.points); if (points.length < 2)
-    return null; const r = canvas.getBoundingClientRect(), { minGrade, maxGrade } = curveBounds(points), x = event.clientX - r.left, plotX = (grade: number) => 54 + (grade - minGrade) / Math.max(1, maxGrade - minGrade) * (r.width - 54 - 58), closest = points.reduce((best, point) => Math.abs(plotX(point.grade) - x) < Math.abs(plotX(best.grade) - x) ? point : best, points[0]); return Math.abs(plotX(closest.grade) - x) < 14 ? closest.grade : null; }
-paceCanvas.addEventListener('pointermove', event => { const grade = findHoveredComparisonGrade(paceCanvas, event); if (grade === hoveredPaceGrade)
+paceCanvas.addEventListener('pointermove', event => { const grade = hoveredComparisonGrade(paceCanvas, comparisonChartSeries(), event.clientX); if (grade === hoveredPaceGrade)
     return; hoveredPaceGrade = grade; redrawHorizontalVamGuides(); });
 paceCanvas.addEventListener('pointerleave', () => { if (hoveredPaceGrade === null)
     return; hoveredPaceGrade = null; redrawHorizontalVamGuides(); });
-speedCanvas.addEventListener('pointermove', event => { const grade = findHoveredComparisonGrade(speedCanvas, event); if (grade === hoveredSpeedGrade)
+speedCanvas.addEventListener('pointermove', event => { const grade = hoveredComparisonGrade(speedCanvas, comparisonChartSeries(), event.clientX); if (grade === hoveredSpeedGrade)
     return; hoveredSpeedGrade = grade; redrawHorizontalVamGuides(); });
 speedCanvas.addEventListener('pointerleave', () => { if (hoveredSpeedGrade === null)
     return; hoveredSpeedGrade = null; redrawHorizontalVamGuides(); });
@@ -272,6 +279,12 @@ const comparisonColors = ['#2563eb', '#c84735', '#31805a', '#8b5cf6', '#d97706',
 catch {
     paceLibraryStatus.textContent = 'Chart comparison preferences could not be saved in this browser.';
 } };
+const comparisonChartSeries = (): CurveComparisonSeries[] => comparedPaceCurves().map(item => ({
+    id: item.curve.id,
+    name: item.curve.name,
+    color: item.color,
+    points: item.points,
+}));
 function renderPaceComparisonControls() {
     const selected = new Set(paceChartPreferences.curveIds);
     comparisonList.innerHTML = paceCurves.map(curve => `<label><input type="checkbox" data-compare-curve="${escapeHtml(curve.id)}" ${selected.has(curve.id) ? 'checked' : ''}><span class="curve-swatch" style="--curve-color:${paceCurveColor(curve.id)}"></span>${escapeHtml(curve.name)}</label>`).join('');
@@ -282,181 +295,35 @@ function renderPaceComparisonControls() {
     showVamCurves.checked = paceChartPreferences.showVam;
     showVamGuides.disabled = !paceChartPreferences.showVam;
 }
-function prepareComparisonCanvas(canvas: HTMLCanvasElement) {
-    const rect = canvas.getBoundingClientRect(), ratio = devicePixelRatio || 1;
-    canvas.width = rect.width * ratio;
-    canvas.height = rect.height * ratio;
-    const context = canvas.getContext('2d')!;
-    context.scale(ratio, ratio);
-    return { context, width: rect.width, height: rect.height };
-}
-function drawComparisonGradeGrid(context: CanvasRenderingContext2D, width: number, height: number, minGrade: number, maxGrade: number, left: number, right: number, top: number, bottom: number) {
-    const X = (grade: number) => left + (grade - minGrade) / Math.max(1, maxGrade - minGrade) * (width - left - right), tick = Math.max(5, Math.ceil((maxGrade - minGrade) / 8 / 5) * 5);
-    context.font = '12px system-ui';
-    context.textAlign = 'center';
-    for (let grade = Math.ceil(minGrade / tick) * tick; grade <= maxGrade; grade += tick) {
-        const x = X(grade);
-        context.strokeStyle = grade === 0 ? '#64748b' : '#d7dde5';
-        context.lineWidth = grade === 0 ? 1.5 : 1;
-        context.setLineDash(grade === 0 ? [4, 3] : []);
-        context.beginPath();
-        context.moveTo(x, top);
-        context.lineTo(x, height - bottom);
-        context.stroke();
-        context.setLineDash([]);
-        context.fillStyle = '#667281';
-        context.fillText(`${grade}%`, x, height - 8);
-    }
-    context.textAlign = 'start';
-    return X;
-}
-function drawVamScale(context: CanvasRenderingContext2D, width: number, height: number, left: number, right: number, top: number, bottom: number, maxVam: number) {
-    const V = (vam: number) => top + (maxVam * 1.1 - vam) / (maxVam * 1.1) * (height - top - bottom);
-    context.font = '11px system-ui';
-    context.textAlign = 'left';
-    for (let index = 0; index <= 4; index++) {
-        const vam = maxVam * index / 4, y = V(vam);
-        context.fillStyle = '#667281';
-        context.fillText(`${Math.round(vam)}`, width - right + 4, y + 4);
-        if (showVamGuides.checked && index) {
-            context.strokeStyle = 'rgba(49,128,90,.28)';
-            context.setLineDash([4, 4]);
-            context.beginPath();
-            context.moveTo(left, y);
-            context.lineTo(width - right, y);
-            context.stroke();
-            context.setLineDash([]);
-        }
-    }
-    return V;
-}
 function drawPaceComparison() {
     paceHeading.hidden = paceCanvas.hidden = !paceChartPreferences.showPace;
     if (!paceChartPreferences.showPace)
         return;
-    const curves = comparedPaceCurves(), points = curves.flatMap(item => item.points), { context, width, height } = prepareComparisonCanvas(paceCanvas), left = 54, right = 58, top = 18, bottom = 34;
-    context.clearRect(0, 0, width, height);
-    if (points.length < 2) {
-        context.fillStyle = '#667281';
-        context.font = '14px system-ui';
-        context.fillText('Select a curve with at least two valid points.', left + 12, height / 2);
-        return;
-    }
-    const { minGrade, maxGrade } = curveBounds(points), minPace = Math.min(...points.map(point => point.seconds)), maxPace = Math.max(...points.map(point => point.seconds)), paceRange = Math.max(30, maxPace - minPace), maxVam = Math.max(100, ...points.map(point => point.grade === 0 ? 0 : 36000 * Math.abs(point.grade) / point.seconds)), X = drawComparisonGradeGrid(context, width, height, minGrade, maxGrade, left, right, top, bottom), Y = (seconds: number) => top + (seconds - minPace + paceRange * .1) / (paceRange * 1.2) * (height - top - bottom), V = paceChartPreferences.showVam ? drawVamScale(context, width, height, left, right, top, bottom, maxVam) : null;
-    context.font = '11px system-ui';
-    for (let index = 0; index <= 5; index++) {
-        const seconds = minPace + (maxPace - minPace) * index / 5, y = Y(seconds);
-        context.strokeStyle = 'rgba(148,163,184,.3)';
-        context.beginPath();
-        context.moveTo(left, y);
-        context.lineTo(width - right, y);
-        context.stroke();
-        context.fillStyle = '#667281';
-        context.textAlign = 'right';
-        context.fillText(paceText(seconds), left - 5, y + 4);
-    }
-    curves.forEach(item => {
-        if (V) {
-            context.strokeStyle = item.color;
-            context.globalAlpha = .72;
-            context.lineWidth = 1.8;
-            context.setLineDash([6, 4]);
-            context.beginPath();
-            item.points.forEach((point, index) => { const y = V(point.grade === 0 ? 0 : 36000 * Math.abs(point.grade) / point.seconds); index ? context.lineTo(X(point.grade), y) : context.moveTo(X(point.grade), y); });
-            context.stroke();
-            context.setLineDash([]);
-            context.globalAlpha = 1;
-        }
-        context.strokeStyle = item.color;
-        context.lineWidth = item.curve.id === activePaceCurveId ? 3 : 2.2;
-        context.beginPath();
-        item.points.forEach((point, index) => index ? context.lineTo(X(point.grade), Y(point.seconds)) : context.moveTo(X(point.grade), Y(point.seconds)));
-        context.stroke();
-        context.fillStyle = item.color;
-        item.points.forEach(point => { context.beginPath(); context.arc(X(point.grade), Y(point.seconds), item.curve.id === activePaceCurveId ? 4 : 3, 0, Math.PI * 2); context.fill(); });
+    drawCurveComparisonChart({
+        canvas: paceCanvas,
+        curves: comparisonChartSeries(),
+        metric: 'pace',
+        activeCurveId: activePaceCurveId,
+        showVam: paceChartPreferences.showVam,
+        showVamGuides: showVamGuides.checked,
+        hoveredGrade: hoveredPaceGrade,
+        formatPace: paceText,
     });
-    context.textAlign = 'start';
-    if (hoveredPaceGrade !== null) {
-        const entries = curves.map(item => ({ item, point: item.points.reduce((best, point) => Math.abs(point.grade - hoveredPaceGrade!) < Math.abs(best.grade - hoveredPaceGrade!) ? point : best, item.points[0]) })).filter(entry => entry.point), x = X(hoveredPaceGrade);
-        if (entries.length) {
-            context.strokeStyle = 'rgba(71,85,105,.55)';
-            context.setLineDash([3, 3]);
-            context.beginPath();
-            context.moveTo(x, top);
-            context.lineTo(x, height - bottom);
-            context.stroke();
-            context.setLineDash([]);
-            context.font = '11px system-ui';
-            const labels = entries.map(({ item, point }) => { const vam = point.grade === 0 ? 0 : Math.round(36000 * Math.abs(point.grade) / point.seconds); return `${item.curve.name.slice(0, 24)} · ${point.grade}% · ${paceText(point.seconds)}/km · ${(3600 / point.seconds).toFixed(1)} km/h · ${vam} m/h`; }), boxWidth = Math.min(width - left - right, Math.max(...labels.map(label => context.measureText(label).width)) + 14), boxHeight = labels.length * 17 + 10, boxX = Math.min(width - right - boxWidth, Math.max(left, x + 8)), boxY = top + 6;
-            context.fillStyle = 'rgba(17,24,39,.92)';
-            context.fillRect(boxX, boxY, boxWidth, boxHeight);
-            labels.forEach((label, index) => { context.fillStyle = entries[index].item.color; context.fillRect(boxX + 6, boxY + 8 + index * 17, 5, 5); context.fillStyle = '#fff'; context.fillText(label, boxX + 16, boxY + 14 + index * 17); });
-        }
-    }
 }
 function drawSpeedComparison() {
     speedHeading.hidden = speedCanvas.hidden = !paceChartPreferences.showSpeed;
     if (!paceChartPreferences.showSpeed)
         return;
-    const curves = comparedPaceCurves(), points = curves.flatMap(item => item.points), { context, width, height } = prepareComparisonCanvas(speedCanvas), left = 54, right = 58, top = 18, bottom = 34;
-    context.clearRect(0, 0, width, height);
-    if (points.length < 2) {
-        context.fillStyle = '#667281';
-        context.font = '14px system-ui';
-        context.fillText('Select a curve with at least two valid points.', left + 12, height / 2);
-        return;
-    }
-    const { minGrade, maxGrade } = curveBounds(points), speeds = points.map(point => 3600 / point.seconds), minSpeed = Math.min(...speeds), maxSpeed = Math.max(...speeds), speedRange = Math.max(.5, maxSpeed - minSpeed), maxVam = Math.max(100, ...points.map(point => point.grade === 0 ? 0 : 36000 * Math.abs(point.grade) / point.seconds)), X = drawComparisonGradeGrid(context, width, height, minGrade, maxGrade, left, right, top, bottom), Y = (speed: number) => top + (maxSpeed + speedRange * .1 - speed) / (speedRange * 1.2) * (height - top - bottom), V = paceChartPreferences.showVam ? drawVamScale(context, width, height, left, right, top, bottom, maxVam) : null;
-    context.font = '11px system-ui';
-    for (let index = 0; index <= 5; index++) {
-        const speed = minSpeed + (maxSpeed - minSpeed) * index / 5, y = Y(speed);
-        context.strokeStyle = 'rgba(148,163,184,.3)';
-        context.beginPath();
-        context.moveTo(left, y);
-        context.lineTo(width - right, y);
-        context.stroke();
-        context.fillStyle = '#667281';
-        context.textAlign = 'right';
-        context.fillText(speed.toFixed(1), left - 5, y + 4);
-    }
-    curves.forEach(item => {
-        if (V) {
-            context.strokeStyle = item.color;
-            context.globalAlpha = .72;
-            context.lineWidth = 1.8;
-            context.setLineDash([6, 4]);
-            context.beginPath();
-            item.points.forEach((point, index) => { const y = V(point.grade === 0 ? 0 : 36000 * Math.abs(point.grade) / point.seconds); index ? context.lineTo(X(point.grade), y) : context.moveTo(X(point.grade), y); });
-            context.stroke();
-            context.setLineDash([]);
-            context.globalAlpha = 1;
-        }
-        context.strokeStyle = item.color;
-        context.lineWidth = item.curve.id === activePaceCurveId ? 3 : 2.2;
-        context.beginPath();
-        item.points.forEach((point, index) => index ? context.lineTo(X(point.grade), Y(3600 / point.seconds)) : context.moveTo(X(point.grade), Y(3600 / point.seconds)));
-        context.stroke();
-        context.fillStyle = item.color;
-        item.points.forEach(point => { context.beginPath(); context.arc(X(point.grade), Y(3600 / point.seconds), item.curve.id === activePaceCurveId ? 4 : 3, 0, Math.PI * 2); context.fill(); });
+    drawCurveComparisonChart({
+        canvas: speedCanvas,
+        curves: comparisonChartSeries(),
+        metric: 'speed',
+        activeCurveId: activePaceCurveId,
+        showVam: paceChartPreferences.showVam,
+        showVamGuides: showVamGuides.checked,
+        hoveredGrade: hoveredSpeedGrade,
+        formatPace: paceText,
     });
-    context.textAlign = 'start';
-    if (hoveredSpeedGrade !== null) {
-        const entries = curves.map(item => ({ item, point: item.points.reduce((best, point) => Math.abs(point.grade - hoveredSpeedGrade!) < Math.abs(best.grade - hoveredSpeedGrade!) ? point : best, item.points[0]) })).filter(entry => entry.point), x = X(hoveredSpeedGrade);
-        if (entries.length) {
-            context.strokeStyle = 'rgba(71,85,105,.55)';
-            context.setLineDash([3, 3]);
-            context.beginPath();
-            context.moveTo(x, top);
-            context.lineTo(x, height - bottom);
-            context.stroke();
-            context.setLineDash([]);
-            context.font = '11px system-ui';
-            const labels = entries.map(({ item, point }) => { const speed = 3600 / point.seconds, vam = point.grade === 0 ? 0 : Math.round(36000 * Math.abs(point.grade) / point.seconds); return `${item.curve.name.slice(0, 24)} · ${point.grade}% · ${speed.toFixed(1)} km/h · ${paceText(point.seconds)}/km · ${vam} m/h`; }), boxWidth = Math.min(width - left - right, Math.max(...labels.map(label => context.measureText(label).width)) + 14), boxHeight = labels.length * 17 + 10, boxX = Math.min(width - right - boxWidth, Math.max(left, x + 8)), boxY = top + 6;
-            context.fillStyle = 'rgba(17,24,39,.92)';
-            context.fillRect(boxX, boxY, boxWidth, boxHeight);
-            labels.forEach((label, index) => { context.fillStyle = entries[index].item.color; context.fillRect(boxX + 6, boxY + 8 + index * 17, 5, 5); context.fillStyle = '#fff'; context.fillText(label, boxX + 16, boxY + 14 + index * 17); });
-        }
-    }
 }
 const redrawHorizontalVamGuides = () => { drawPaceComparison(); drawSpeedComparison(); renderPaceComparisonControls(); };
 showVamGuides.addEventListener('change', redrawHorizontalVamGuides);
@@ -510,6 +377,32 @@ function syncWorkspace() {
 }
 window.addEventListener('hashchange', syncWorkspace);
 syncWorkspace();
+let chartResizeFrame = 0;
+function scheduleChartRedraw() {
+    cancelAnimationFrame(chartResizeFrame);
+    chartResizeFrame = requestAnimationFrame(() => {
+        if (!routePage.hidden && profile.length)
+            draw(profile);
+        if (!pacePanel.hidden) {
+            drawPaceComparison();
+            drawSpeedComparison();
+        }
+        if (!activityPanel.hidden) {
+            drawActivityComparison();
+            drawActivityGradient();
+        }
+    });
+}
+window.addEventListener('resize', scheduleChartRedraw);
+let observedAppWidth = 0;
+const chartResizeObserver = new ResizeObserver(entries => {
+    const width = entries[0]?.contentRect.width ?? 0;
+    if (Math.abs(width - observedAppWidth) < 1)
+        return;
+    observedAppWidth = width;
+    scheduleChartRedraw();
+});
+chartResizeObserver.observe(A);
 const uniquePaceCurveName = (requested: string, ignoreId?: string) => {
     const base = requested.trim() || 'Pace curve', names = new Set(paceCurves.filter(curve => curve.id !== ignoreId).map(curve => curve.name.toLocaleLowerCase()));
     if (!names.has(base.toLocaleLowerCase()))
@@ -1004,56 +897,56 @@ function interpolateActivityTime(distance: number) { if (activity.length < 2 || 
 function signedDuration(seconds: number) { const sign = seconds > 0 ? '+' : seconds < 0 ? '−' : ''; return `${sign}${durationText(Math.abs(seconds))}`; }
 function activityComparison(from: number, to: number) { const expectedStart = interpolateRouteTime(from), expectedEnd = interpolateRouteTime(to), actualStart = interpolateActivityTime(from), actualEnd = interpolateActivityTime(to); if (expectedStart === null || expectedEnd === null || actualStart === null || actualEnd === null)
     return null; const expected = expectedEnd - expectedStart, actual = actualEnd - actualStart; return { expected, actual, delta: actual - expected }; }
-function drawActivityComparison() { const canvas = activityPanel.querySelector<HTMLCanvasElement>('#activity-chart'); if (!canvas || !routePrediction || activity.length < 2)
-    return; const rect = canvas.getBoundingClientRect(), ratio = devicePixelRatio || 1; canvas.width = rect.width * ratio; canvas.height = rect.height * ratio; const context = canvas.getContext('2d')!; context.scale(ratio, ratio); const W = rect.width, H = rect.height, L = 52, R = 16, T = 18, B = 32, start = activity[0].routeD, end = activity.at(-1)!.routeD, actualDuration = activity.at(-1)!.moving - activity[0].moving, predictedStart = interpolateRouteTime(start)!, predictedEnd = interpolateRouteTime(end)!, predictedDuration = predictedEnd - predictedStart, maxTime = Math.max(actualDuration, predictedDuration, 1), X = (distance: number) => L + (distance - start) / Math.max(1, end - start) * (W - L - R), Y = (seconds: number) => T + (maxTime * 1.08 - seconds) / (maxTime * 1.08) * (H - T - B); context.clearRect(0, 0, W, H); context.strokeStyle = '#cbd3db'; context.beginPath(); context.moveTo(L, T); context.lineTo(L, H - B); context.lineTo(W - R, H - B); context.stroke(); context.font = '11px system-ui'; context.fillStyle = '#667281'; for (let i = 0; i <= 4; i++) {
-    const seconds = maxTime * i / 4, y = Y(seconds);
-    context.strokeStyle = 'rgba(148,163,184,.35)';
-    context.beginPath();
-    context.moveTo(L, y);
-    context.lineTo(W - R, y);
-    context.stroke();
-    context.fillText(durationText(seconds), 3, y + 4);
-} context.strokeStyle = '#2563eb'; context.lineWidth = 2.5; context.beginPath(); for (let i = 0; i < p.length; i++) {
-    const distance = p[i].d;
-    if (distance < start || distance > end)
-        continue;
-    const elapsed = routePrediction.cumulative[i] - predictedStart;
-    context.lineTo(X(distance), Y(elapsed));
-} context.stroke(); context.strokeStyle = '#d97706'; context.lineWidth = 2.5; context.beginPath(); activity.forEach((point, index) => index ? context.lineTo(X(point.routeD), Y(point.moving - activity[0].moving)) : context.moveTo(X(point.routeD), Y(0))); context.stroke(); context.fillStyle = '#2563eb'; context.fillText('Predicted moving time', L + 6, T + 12); context.fillStyle = '#d97706'; context.fillText('Actual moving time', L + 132, T + 12); context.fillStyle = '#667281'; context.fillText(fmt(start), L, H - 8); context.fillText(fmt(end), W - R - 45, H - 8); }
-function activityGradientSamples() { const samples: {
-    grade: number;
-    pace: number;
-}[] = []; let start = 0; for (let end = 1; end < activity.length; end++) {
-    const distance = activity[end].routeD - activity[start].routeD;
-    if (distance < 100)
-        continue;
-    const seconds = activity[end].moving - activity[start].moving, midpoint = (activity[end].routeD + activity[start].routeD) / 2, grade = localGradeAtDistance(p, profile, midpoint), pace = seconds / (distance / 1000);
-    if (seconds > 0 && Number.isFinite(pace) && pace > 30 && pace < 7200)
-        samples.push({ grade, pace });
-    start = end;
-} return samples; }
-function drawActivityGradient() { const canvas = activityPanel.querySelector<HTMLCanvasElement>('#activity-gradient-chart'), curve = curvePoints(); if (!canvas || curve.length < 2)
-    return; const actual = activityGradientSamples(), rect = canvas.getBoundingClientRect(), ratio = devicePixelRatio || 1; canvas.width = rect.width * ratio; canvas.height = rect.height * ratio; const context = canvas.getContext('2d')!; context.scale(ratio, ratio); const W = rect.width, H = rect.height, L = 46, R = 16, T = 18, B = 32, grades = [...curve.map(point => point.grade), ...actual.map(point => point.grade)], paces = [...curve.map(point => point.seconds), ...actual.map(point => point.pace)], minGrade = Math.min(-5, ...grades), maxGrade = Math.max(5, ...grades), minPace = Math.min(...paces), maxPace = Math.max(...paces), paceRange = Math.max(30, maxPace - minPace), X = (grade: number) => L + (grade - minGrade) / Math.max(1, maxGrade - minGrade) * (W - L - R), Y = (pace: number) => T + (pace - minPace + paceRange * .1) / (paceRange * 1.2) * (H - T - B); context.clearRect(0, 0, W, H); context.strokeStyle = '#cbd3db'; context.beginPath(); context.moveTo(L, T); context.lineTo(L, H - B); context.lineTo(W - R, H - B); context.stroke(); context.font = '11px system-ui'; for (let i = 0; i <= 4; i++) {
-    const pace = minPace + (maxPace - minPace) * i / 4, y = Y(pace);
-    context.strokeStyle = 'rgba(148,163,184,.35)';
-    context.beginPath();
-    context.moveTo(L, y);
-    context.lineTo(W - R, y);
-    context.stroke();
-    context.fillStyle = '#667281';
-    context.fillText(paceText(pace), 3, y + 4);
-} const tick = Math.max(5, Math.ceil((maxGrade - minGrade) / 8 / 5) * 5); context.textAlign = 'center'; for (let grade = Math.ceil(minGrade / tick) * tick; grade <= maxGrade; grade += tick) {
-    const x = X(grade);
-    context.strokeStyle = grade === 0 ? '#64748b' : '#d7dde5';
-    context.setLineDash(grade === 0 ? [4, 3] : []);
-    context.beginPath();
-    context.moveTo(x, T);
-    context.lineTo(x, H - B);
-    context.stroke();
-    context.setLineDash([]);
-    context.fillStyle = '#667281';
-    context.fillText(`${grade}%`, x, H - 8);
-} context.strokeStyle = '#2563eb'; context.lineWidth = 2.5; context.beginPath(); curve.sort((a, b) => a.grade - b.grade).forEach((point, index) => index ? context.lineTo(X(point.grade), Y(point.seconds)) : context.moveTo(X(point.grade), Y(point.seconds))); context.stroke(); context.fillStyle = 'rgba(217,119,6,.82)'; actual.forEach(point => { context.beginPath(); context.arc(X(point.grade), Y(point.pace), 3, 0, Math.PI * 2); context.fill(); }); context.textAlign = 'start'; context.fillStyle = '#2563eb'; context.fillText('Pace curve', L + 6, T + 12); context.fillStyle = '#d97706'; context.fillText(`Actual 100 m samples (${actual.length})`, L + 76, T + 12); }
+function drawActivityComparison() {
+    const canvas = activityPanel.querySelector<HTMLCanvasElement>('#activity-chart');
+    if (!canvas || !routePrediction || activity.length < 2)
+        return;
+    const start = activity[0].routeD;
+    const end = activity.at(-1)!.routeD;
+    const predictedStart = interpolateRouteTime(start);
+    const predictedEnd = interpolateRouteTime(end);
+    if (predictedStart === null || predictedEnd === null)
+        return;
+    drawActivityComparisonChart({
+        canvas,
+        routePoints: p,
+        cumulativePrediction: routePrediction.cumulative,
+        activity,
+        predictedStart,
+        predictedEnd,
+        formatDuration: durationText,
+        formatDistance: fmt,
+    });
+}
+function activityGradientSamples(): ActivityGradientSample[] {
+    const samples: ActivityGradientSample[] = [];
+    let start = 0;
+    for (let end = 1; end < activity.length; end++) {
+        const distance = activity[end].routeD - activity[start].routeD;
+        if (distance < 100)
+            continue;
+        const seconds = activity[end].moving - activity[start].moving;
+        const midpoint = (activity[end].routeD + activity[start].routeD) / 2;
+        const grade = localGradeAtDistance(p, profile, midpoint);
+        const pace = seconds / (distance / 1000);
+        if (seconds > 0 && Number.isFinite(pace) && pace > 30 && pace < 7200)
+            samples.push({ grade, pace });
+        start = end;
+    }
+    return samples;
+}
+function drawActivityGradient() {
+    const canvas = activityPanel.querySelector<HTMLCanvasElement>('#activity-gradient-chart');
+    const curve = curvePoints();
+    if (!canvas || curve.length < 2)
+        return;
+    drawActivityGradientChart({
+        canvas,
+        curve,
+        actual: activityGradientSamples(),
+        formatPace: paceText,
+    });
+}
 function renderActivityAnalysis() { if (!activity.length) {
     activityPanel.hidden = true;
     return;
@@ -1077,7 +970,7 @@ function renderActivityAnalysis() { if (!activity.length) {
         coveragePercent: (end - start) / (p.at(-1)!.d) * 100,
         qualityText: activityMatchQuality ? `${Math.round(activityMatchQuality.within150m)}% of samples within 150 m; median ${Math.round(activityMatchQuality.medianError)} m and 90th percentile ${Math.round(activityMatchQuality.p90Error)} m.` : 'Match quality unavailable.',
         guidanceHtml: [...byKind.entries()].filter(([, value]) => value.expected > 60).map(([kind, value]) => { const difference = (value.actual / value.expected - 1) * 100; return `<li><b>${kind[0].toUpperCase() + kind.slice(1)}:</b> ${Math.abs(difference).toFixed(0)}% ${difference > 0 ? 'slower' : 'faster'} than the selected curve.</li>`; }).join('') || '<li>Not enough route coverage for section-level calibration.</li>',
-    }, curveName = escapeHtml(viewModel.curveName); activityPanel.innerHTML = `<div class="prediction-head"><div><p class="eyebrow">Activity versus ${curveName}</p><h2>${signedDuration(viewModel.differenceSeconds)}</h2></div><p>${durationText(viewModel.actualSeconds)} moving versus ${durationText(viewModel.expectedSeconds)} predicted across ${viewModel.coveragePercent.toFixed(0)}% of the route. Positive means slower than predicted.</p></div><div class="activity-stats"><article><b>${durationText(viewModel.elapsedSeconds)}</b><span>Elapsed time</span></article><article><b>${durationText(viewModel.actualSeconds)}</b><span>Moving time</span></article><article><b>${durationText(viewModel.expectedSeconds)}</b><span>Predicted time · ${curveName}</span></article><article><b>${paceText(viewModel.actualSeconds / (viewModel.distance / 1000))}/km</b><span>Actual average pace</span></article></div><p class="match-quality"><b>Route match:</b> ${viewModel.qualityText}</p><button type="button" id="activity-csv">Download activity comparison CSV</button><canvas id="activity-chart" aria-label="Actual and predicted cumulative moving time"></canvas><h3>Actual pace against the curve</h3><canvas id="activity-gradient-chart" aria-label="Actual pace samples against the pace curve"></canvas><details class="calibration" open><summary>Calibration indications</summary><p>These observations describe this activity; keep effort level and terrain context in mind before changing a curve.</p><ul>${viewModel.guidanceHtml}</ul></details>`; activityPanel.querySelector<HTMLButtonElement>('#activity-csv')!.onclick = downloadActivityCsv; renderTerrainTable(); renderWaypointSegments(); drawActivityComparison(); drawActivityGradient(); }
+    }, curveName = escapeHtml(viewModel.curveName); activityPanel.innerHTML = `<div class="prediction-head"><div><p class="eyebrow">Activity versus ${curveName}</p><h2>${signedDuration(viewModel.differenceSeconds)}</h2></div><p>${durationText(viewModel.actualSeconds)} moving versus ${durationText(viewModel.expectedSeconds)} predicted across ${viewModel.coveragePercent.toFixed(0)}% of the route. Positive means slower than predicted.</p></div><div class="activity-stats"><article><b>${durationText(viewModel.elapsedSeconds)}</b><span>Elapsed time</span></article><article><b>${durationText(viewModel.actualSeconds)}</b><span>Moving time</span></article><article><b>${durationText(viewModel.expectedSeconds)}</b><span>Predicted time · ${curveName}</span></article><article><b>${paceText(viewModel.actualSeconds / (viewModel.distance / 1000))}/km</b><span>Actual average pace</span></article></div><p class="match-quality"><b>Route match:</b> ${viewModel.qualityText}</p><button type="button" id="activity-csv">Download activity comparison CSV</button><canvas id="activity-chart" aria-label="Actual and predicted cumulative moving time">Actual and predicted values are included in the terrain and waypoint tables.</canvas><h3>Actual pace against the curve</h3><canvas id="activity-gradient-chart" aria-label="Actual pace samples against the pace curve">The activity summary and section comparisons provide a text alternative to this chart.</canvas><details class="calibration" open><summary>Calibration indications</summary><p>These observations describe this activity; keep effort level and terrain context in mind before changing a curve.</p><ul>${viewModel.guidanceHtml}</ul></details>`; activityPanel.querySelector<HTMLButtonElement>('#activity-csv')!.onclick = downloadActivityCsv; renderTerrainTable(); renderWaypointSegments(); drawActivityComparison(); drawActivityGradient(); }
 activityFile.onchange = async () => { const file = activityFile.files?.[0]; if (!file)
     return; error.textContent = ''; try {
     const text = await file.text(), recorded = parseActivity(text), useAsRoute = !p.length || !profile.length;
@@ -1153,7 +1046,8 @@ function terrainRowHtml(row: TerrainRowViewModel, showPrediction: boolean, showA
             ? `<td>${durationText(row.actual.seconds)}</td><td>${row.actual.paceSecondsPerKm === null ? '—' : `${paceText(row.actual.paceSecondsPerKm)}/km`}</td><td>${row.actual.vamMetersPerHour === null ? '—' : vamText(row.actual.vamMetersPerHour, 3600)}</td><td>${durationText(row.actual.cumulativeSeconds)}</td><td>${signedDuration(row.actual.differenceSeconds)}</td>`
             : '<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>'
         : '';
-    return `<tr class="${row.child ? 'sub-row' : ''}" data-primary="${row.primaryIndex}"${hidden}><td>${toggle}${row.number}</td><td class="${row.kind}">${row.child ? '↳ ' : ''}${escapeHtml(row.label)}</td><td>${fmt(row.startDistance)}</td><td>${fmt(row.endDistance)}</td><td>${fmt(row.distance)}</td><td>${row.elevationChange >= 0 ? '+' : ''}${Math.round(row.elevationChange)} m</td><td>${row.averageGrade === null ? '—' : `${row.averageGrade.toFixed(1)}%`}</td>${predicted}${actual}</tr>`;
+    const focusLabel = escapeHtml(`Focus elevation profile on section ${row.number}: ${row.label}`);
+    return `<tr class="${row.child ? 'sub-row' : ''}" data-primary="${row.primaryIndex}" tabindex="0" aria-label="${focusLabel}"${hidden}><td>${toggle}${row.number}</td><td class="${row.kind}">${row.child ? '↳ ' : ''}${escapeHtml(row.label)}</td><td>${fmt(row.startDistance)}</td><td>${fmt(row.endDistance)}</td><td>${fmt(row.distance)}</td><td>${row.elevationChange >= 0 ? '+' : ''}${Math.round(row.elevationChange)} m</td><td>${row.averageGrade === null ? '—' : `${row.averageGrade.toFixed(1)}%`}</td>${predicted}${actual}</tr>`;
 }
 
 function renderTerrainTable() {
@@ -1262,92 +1156,29 @@ function draw(e: number[]) {
         viewEndInput.value = (total / 1000).toFixed(2);
     }
     syncPan();
-    const first = locate(viewStart), last = locate(viewEnd), visible = e.slice(first, last + 1), low = Math.min(...visible), high = Math.max(...visible), padding = Math.max(5, (high - low) * .08), lo = low - padding, hi = Math.max(10, high - low + padding * 2), r = chart.getBoundingClientRect(), q = devicePixelRatio || 1;
-    chart.width = r.width * q;
-    chart.height = r.height * q;
-    const c = chart.getContext('2d')!;
-    c.scale(q, q);
-    const W = r.width, H = r.height, L = 50, R = 14, T = 14, B = showWaypoints.checked && routeWaypoints.some(({ index }) => index >= first && index <= last) ? 108 : 30, D = Math.max(1, viewEnd - viewStart), X = (d: number) => L + (d - viewStart) / D * (W - L - R), Y = (z: number) => T + (lo + hi - z) / hi * (H - T - B), threshold = val('#grade');
-    const localGrade = (i: number) => localGradeAtDistance(p, e, p[i].d), gradientColour = (i: number) => { const grade = localGrade(i); if (grade >= threshold + 7)
-        return '#a52f24'; if (grade >= threshold + 3)
-        return '#d66a35'; if (grade >= threshold)
-        return '#d99939'; if (grade <= -threshold - 7)
-        return '#16634f'; if (grade <= -threshold - 3)
-        return '#31805a'; if (grade <= -threshold)
-        return '#75ad96'; return '#607183'; };
-    const line = (s: S, width = 3, colour?: string) => { const a = Math.max(s.a, first), b = Math.min(s.b, last); if (a >= b)
-        return; c.lineWidth = width; if (colour || plotColours.value === 'sections') {
-        c.strokeStyle = colour ?? C[s.k];
-        c.beginPath();
-        for (let i = a; i <= b; i++)
-            i === a ? c.moveTo(X(p[i].d), Y(e[i])) : c.lineTo(X(p[i].d), Y(e[i]));
-        c.stroke();
-        return;
-    } for (let i = a; i < b; i++) {
-        c.strokeStyle = gradientColour(i);
-        c.beginPath();
-        c.moveTo(X(p[i].d), Y(e[i]));
-        c.lineTo(X(p[i + 1].d), Y(e[i + 1]));
-        c.stroke();
-    } };
-    c.strokeStyle = '#cbd3db';
-    c.beginPath();
-    c.moveTo(L, T);
-    c.lineTo(L, H - B);
-    c.lineTo(W - R, H - B);
-    c.stroke();
-    c.fillStyle = '#667281';
-    c.font = '12px system-ui';
-    c.fillText(`${Math.round(lo + hi)} m`, 3, T + 10);
-    c.fillText(`${Math.round(lo)} m`, 3, H - B);
-    c.fillText(`${(viewStart / 1000).toFixed(2)} km`, L, H - 8);
-    c.fillText(`${(viewEnd / 1000).toFixed(2)} km`, W - R - 50, H - 8);
-    c.save();
-    c.beginPath();
-    c.rect(L, T, W - L - R, H - T - B);
-    c.clip();
-    ss.forEach(s => line(s));
-    if (showWaypoints.checked)
-        routeWaypoints.filter(({ index }) => index >= first && index <= last).forEach(({ index }) => { const x = X(p[index].d), y = Y(e[index]); c.save(); c.setLineDash([3, 4]); c.strokeStyle = '#2563eb'; c.globalAlpha = .55; c.lineWidth = 1; c.beginPath(); c.moveTo(x, T); c.lineTo(x, H - B); c.stroke(); c.restore(); c.fillStyle = '#2563eb'; c.beginPath(); c.arc(x, y, 4, 0, Math.PI * 2); c.fill(); });
-    if (viewStart !== 0 || viewEnd !== total) {
-        c.fillStyle = '#f8fafc';
-        c.strokeStyle = '#34465d';
-        c.lineWidth = 1.5;
-        [...new Set(ms.flatMap(m => m.c.flatMap(s => [s.a, s.b])))].filter(i => i >= first && i <= last).forEach(i => { c.beginPath(); c.arc(X(p[i].d), Y(e[i]), 3.5, 0, Math.PI * 2); c.fill(); c.stroke(); });
-    }
-    if (hovered !== null && viewStart === 0 && viewEnd === total) {
-        const m = ms[hovered];
-        line({ k: 'flat', a: m.a, b: m.b }, 8, '#111827');
-        m.c.forEach(s => line(s, 4));
-    }
-    c.restore();
-    if (showWaypoints.checked) {
-        c.fillStyle = '#2563eb';
-        c.font = '11px system-ui';
-        c.textAlign = 'center';
-        const laneEnds: number[] = [];
-        routeWaypoints.filter(({ index }) => index >= first && index <= last).sort((a, b) => p[a.index].d - p[b.index].d).forEach(({ waypoint, index }) => { const x = X(p[index].d), width = c.measureText(waypoint.name).width + 10; let lane = 0; while (laneEnds[lane] !== undefined && x - width / 2 < laneEnds[lane])
-            lane++; laneEnds[lane] = x + width / 2; if (lane < 6)
-            c.fillText(waypoint.name, x, H - B + 16 + lane * 14); });
-        c.textAlign = 'start';
-    }
-    if (selectionStart !== null && selectionEnd !== null) {
-        const x = Math.min(X(selectionStart), X(selectionEnd)), width = Math.abs(X(selectionEnd) - X(selectionStart));
-        c.fillStyle = 'rgba(37,99,235,.18)';
-        c.fillRect(x, T, width, H - T - B);
-        c.strokeStyle = '#2563eb';
-        c.lineWidth = 1;
-        c.strokeRect(x, T, width, H - T - B);
-    }
-    if (hoverDistance !== null) {
-        const m = hovered === null ? null : ms[hovered], point = locate(hoverDistance), waypoint = showWaypoints.checked ? routeWaypoints.find(entry => entry.index === point)?.waypoint.name : undefined, subsection = m?.c.findIndex(s => point >= s.a && point <= s.b), grade = localGrade(point), section = m ? `${m.k[0].toUpperCase() + m.k.slice(1)} ${hovered! + 1}${subsection === undefined || subsection < 0 ? '' : `.${subsection + 1}`} · ` : '';
-        c.fillStyle = '#111827';
-        c.fillText(`${waypoint ? `${waypoint} · ` : ''}${section}${grade >= 0 ? '+' : ''}${grade.toFixed(1)}% local grade`, L + 8, T + 16);
-    }
+    drawTerrainProfile({
+        canvas: chart,
+        points: p,
+        elevations: e,
+        sections: ss,
+        primarySections: ms,
+        waypoints: routeWaypoints.map(({ waypoint, index }) => ({ name: waypoint.name, index })),
+        viewStart,
+        viewEnd,
+        showWaypoints: showWaypoints.checked,
+        colourMode: plotColours.value === 'gradient' ? 'gradient' : 'sections',
+        gradeThreshold: val('#grade'),
+        localGrade: index => localGradeAtDistance(p, e, p[index].d),
+        hoveredPrimary: hovered,
+        hoverDistance,
+        selectionStart,
+        selectionEnd,
+        sectionColours: C,
+    });
 }
 function setHovered(index: number | null, distance: number | null = null) { const changed = hovered !== index; hovered = index; hoverDistance = distance; if (changed)
     document.querySelectorAll('[data-primary]').forEach(row => row.classList.toggle('is-highlighted', Number((row as HTMLElement).dataset.primary) === index)); draw(profile); }
-function distanceAt(event: PointerEvent) { const r = chart.getBoundingClientRect(); return Math.max(viewStart, Math.min(viewEnd, viewStart + (event.clientX - r.left - 50) / (r.width - 64) * (viewEnd - viewStart))); }
+function distanceAt(event: PointerEvent) { return terrainDistanceAt(chart, event.clientX, viewStart, viewEnd); }
 chart.addEventListener('pointerdown', event => { if (!profile.length || event.button !== 0)
     return; selectionStart = distanceAt(event); selectionEnd = selectionStart; chart.setPointerCapture(event.pointerId); draw(profile); });
 chart.addEventListener('pointermove', event => { if (!profile.length)
@@ -1364,8 +1195,13 @@ else
     draw(profile); });
 chart.addEventListener('pointerleave', () => { if (selectionStart === null)
     setHovered(null); });
-($('#rows') as HTMLElement).addEventListener('click', event => { const row = (event.target as HTMLElement).closest<HTMLTableRowElement>('[data-primary]'); if (!row)
-    return; const m = ms[Number(row.dataset.primary)]; setView(p[m.a].d, p[m.b].d); });
+function focusTerrainSection(row: HTMLTableRowElement) { const section = ms[Number(row.dataset.primary)]; if (section)
+    setView(p[section.a].d, p[section.b].d); }
+($('#rows') as HTMLElement).addEventListener('click', event => { const row = (event.target as HTMLElement).closest<HTMLTableRowElement>('[data-primary]'); if (row)
+    focusTerrainSection(row); });
+($('#rows') as HTMLElement).addEventListener('keydown', event => { if (event.key !== 'Enter' && event.key !== ' ' || event.target !== event.currentTarget && (event.target as HTMLElement).closest('button'))
+    return; const row = (event.target as HTMLElement).closest<HTMLTableRowElement>('[data-primary]'); if (!row)
+    return; event.preventDefault(); focusTerrainSection(row); });
 function downloadAnalysisCsv() {
     const header = ['record_type', 'section_number', 'parent_section', 'section_type', 'section_label', 'start_name', 'end_name', 'start_distance_m', 'end_distance_m', 'distance_m', 'elevation_change_m', 'average_grade_percent', 'predicted_time_s', 'predicted_pace_s_per_km', 'predicted_vam_m_per_h', 'cumulative_time_s', 'segment_average_time_s', 'segment_average_pace_s_per_km', 'segment_average_vam_m_per_h', 'segment_average_cumulative_s', 'local_gradient_time_s', 'local_gradient_pace_s_per_km', 'local_gradient_vam_m_per_h', 'local_gradient_cumulative_s', 'setting', 'value'], rows: string[][] = [], add = (cells: [
         number,
