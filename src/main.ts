@@ -12,18 +12,22 @@ import {
     isStoredPaceCurve,
     matchRouteSamples,
     parsePaceCurveBackup,
-    persistentRuns,
     selectLongestRouteChain,
     type PaceCurvePoint,
     type RouteMatchQuality,
     type StoredPaceCurve,
 } from './core';
+import { analyseTerrain } from './terrain';
+import type {
+    PrimaryTerrainSection as M,
+    TerrainKind as K,
+    TerrainSection as S,
+} from './terrain';
 let paceEstimate: {
     total: number;
     sections: number[];
 } | null = null;
 const collapsedPrimary = new Set<number>();
-type K = 'climb' | 'descent' | 'flat' | 'rolling';
 type P = {
     lat: number;
     lon: number;
@@ -37,18 +41,6 @@ type W = {
     lat: number;
     lon: number;
     ele: number | null;
-};
-type S = {
-    k: K;
-    a: number;
-    b: number;
-    label?: string;
-};
-type M = {
-    k: K;
-    a: number;
-    b: number;
-    c: S[];
 };
 type ActivityPoint = {
     lat: number;
@@ -922,10 +914,35 @@ function locate(d: number) { let a = 0, b = p.length - 1; while (a < b) {
     const m = (a + b) >> 1;
     p[m].d < d ? a = m + 1 : b = m;
 } return a; }
-function analyse() { const w = val('#window'), g = val('#grade'), min = val('#min'), bridge = val('#bridge'), e = smooth(w), base = p.slice(0, -1).map((x, i): K => { const a = locate(Math.max(0, x.d - 50)), b = locate(Math.min(p.at(-1)!.d, x.d + 50)), z = b === a ? 0 : (e[b] - e[a]) / (p[b].d - p[a].d) * 100; return z >= g ? 'climb' : z <= -g ? 'descent' : 'flat'; }); ss = sections(internalRolling(base, e, w, g)); merge(min); revalidateFlats(g); ms = primarySections(e, g, min, bridge); tot = p.slice(1).reduce((r, x, i) => { const z = x.ele! - p[i].ele!; z > 0 ? r.up += z : r.down -= z; return r; }, { up: 0, down: 0 }); profile = e; paceEstimate = null; routePrediction = null; collapsedPrimary.clear(); ms.forEach((section, index) => section.c.length && collapsedPrimary.add(index)); predictionPanel.hidden = true; activityPanel.hidden = true; render(e); addSummaryGradients(); decorateTerrainTable(); syncSubsectionToggle(); routeWaypoints.sort((a, b) => a.index - b.index); renderWaypointSegments(); }
-function smooth(_w: number) { const w = Number(profileSmoothing.value); let a = 0, b = 0, sum = 0; return p.map(x => { while (b < p.length && p[b].d <= x.d + w / 2)
-    sum += p[b++].ele!; while (a < p.length && p[a].d < x.d - w / 2)
-    sum -= p[a++].ele!; return sum / (b - a); }); }
+function len(section: S) { return p[section.b].d - p[section.a].d; }
+function analyse() {
+    const analysis = analyseTerrain(p, {
+        gradeThreshold: val('#grade'),
+        rollingWindow: val('#window'),
+        minimumSection: val('#min'),
+        flatRollingBridge: val('#bridge'),
+        profileSmoothing: Number(profileSmoothing.value),
+        bridgeCounterSlopes: counterBridge.checked,
+        counterSlopeBridge: Number(counterBridgeLength.value),
+        counterSlopeReversal: Number(counterReversal.value),
+    });
+    ss = analysis.sections;
+    ms = analysis.primarySections;
+    tot = analysis.totals;
+    profile = analysis.profile;
+    paceEstimate = null;
+    routePrediction = null;
+    collapsedPrimary.clear();
+    ms.forEach((section, index) => section.c.length && collapsedPrimary.add(index));
+    predictionPanel.hidden = true;
+    activityPanel.hidden = true;
+    render(profile);
+    addSummaryGradients();
+    decorateTerrainTable();
+    syncSubsectionToggle();
+    routeWaypoints.sort((a, b) => a.index - b.index);
+    renderWaypointSegments();
+}
 function buildRoutePrediction() { const curve = curvePoints(); if (curve.length < 2 || !p.length || profile.length !== p.length) {
     routePrediction = null;
     return null;
@@ -1267,90 +1284,6 @@ function runPaceAnalysis() { const curve = curvePoints(); if (curve.length < 2) 
 function vamValue(elevationChange: number, seconds: number) { return seconds > 0 && Number.isFinite(elevationChange) ? elevationChange * 3600 / seconds : null; }
 function vamText(elevationChange: number, seconds: number) { const value = vamValue(elevationChange, seconds); return value === null ? '—' : `${value > 0 ? '+' : value < 0 ? '−' : ''}${Math.round(Math.abs(value))} m/h`; }
 function durationText(seconds: number) { return formatDuration(seconds); }
-function sections(k: K[]) { const r: S[] = []; let a = 0; for (let i = 1; i <= k.length; i++)
-    if (i === k.length || k[i] !== k[a]) {
-        r.push({ k: k[a], a, b: i });
-        a = i;
-    } return r; }
-function internalRolling(k: K[], e: number[], window: number, threshold: number) { const out = [...k], runs = sections(k); for (let start = 0; start < runs.length; start++) {
-    let up = false, down = false;
-    for (let end = start; end < runs.length; end++) {
-        up ||= runs[end].k === 'climb';
-        down ||= runs[end].k === 'descent';
-        const distance = p[runs[end].b].d - p[runs[start].a].d, grade = (e[runs[end].b] - e[runs[start].a]) / distance * 100;
-        if (distance > window)
-            break;
-        if (up && down && Math.abs(grade) < threshold)
-            for (let index = runs[start].a; index < runs[end].b; index++)
-                out[index] = 'rolling';
-    }
-} return out; }
-function len(s: S) { return p[s.b].d - p[s.a].d; }
-function coalesce() { const output: S[] = []; for (const s of ss) {
-    const previous = output.at(-1);
-    if (previous && previous.k === s.k)
-        previous.b = s.b;
-    else
-        output.push(s);
-} ss = output; }
-function merge(m: number) { let ok = true; while (ok && ss.length > 1) {
-    ok = false;
-    for (let i = 0; i < ss.length; i++)
-        if (len(ss[i]) < m) {
-            const t = i === 0 ? 1 : i === ss.length - 1 ? i - 1 : len(ss[i - 1]) >= len(ss[i + 1]) ? i - 1 : i + 1;
-            t < i ? (ss[t].b = ss[i].b, ss.splice(i, 1)) : (ss[t].a = ss[i].a, ss.splice(i, 1));
-            coalesce();
-            ok = true;
-            break;
-        }
-} }
-function revalidateFlats(threshold: number) { ss = ss.map(s => { if (s.k !== 'flat' && s.k !== 'rolling')
-    return s; const grade = (p[s.b].ele! - p[s.a].ele!) / len(s) * 100; return Math.abs(grade) >= threshold ? { ...s, k: grade > 0 ? 'climb' as K : 'descent' as K } : s; }); coalesce(); }
-function primarySections(e: number[], threshold: number, minimum: number, bridge: number) { const out: M[] = []; for (let i = 0; i < ss.length;) {
-    const s = ss[i];
-    if (s.k === 'climb' || s.k === 'descent') {
-        const children = [s];
-        let end = s.b, j = i + 1;
-        while (j + 1 < ss.length && ss[j + 1].k === s.k) {
-            const middle = ss[j], next = ss[j + 1], opposite = middle.k === (s.k === 'climb' ? 'descent' : 'climb'), shortFlatOrRolling = (middle.k === 'rolling' || middle.k === 'flat') && bridge > 0 && len(middle) <= bridge && len(middle) <= Math.min(p[end].d - p[s.a].d, len(next)) * .25, reversal = Math.abs(p[middle.b].ele! - p[middle.a].ele!), surrounding = Math.abs(p[end].ele! - p[s.a].ele!) + Math.abs(p[next.b].ele! - p[next.a].ele!), shortCounterSlope = counterBridge.checked && opposite && Number(counterBridgeLength.value) > 0 && len(middle) <= Number(counterBridgeLength.value) && surrounding > 0 && reversal / surrounding * 100 <= Number(counterReversal.value), bridgeable = shortFlatOrRolling || shortCounterSlope;
-            if (!bridgeable)
-                break;
-            children.push(middle, next);
-            end = next.b;
-            j += 2;
-        }
-        const parent = { k: s.k, a: s.a, b: end, c: children };
-        parent.c = gradientSubsections(parent, e, threshold, minimum);
-        out.push(parent);
-        i = j;
-    }
-    else {
-        out.push({ k: s.k, a: s.a, b: s.b, c: [s] });
-        i++;
-    }
-} return out; }
-function gradientSubsections(parent: M, e: number[], threshold: number, minimum: number): S[] {
-    if (parent.c.length > 1)
-        return parent.c.flatMap(source => { if (source.k === 'flat' || source.k === 'rolling')
-            return [{ ...source, label: `sub-${source.k}` }]; const children = gradientSubsections({ k: source.k, a: source.a, b: source.b, c: [source] }, e, threshold, minimum); return source.k === parent.k ? children : children.map(child => ({ ...child, label: `bridged counter-slope ${child.label?.replace('sub-', '') ?? child.k}` })); });
-    const band = (index: number) => { const a = locate(Math.max(0, p[index].d - 50)), b = locate(Math.min(p.at(-1)!.d, p[index].d + 50)), distance = p[b].d - p[a].d, grade = b === a || distance <= 0 ? 0 : (e[b] - e[a]) / distance * 100, amount = Math.abs(grade); if (amount < threshold)
-        return { kind: 'rolling' as K, label: 'sub-rolling' }; const kind: K = grade > 0 ? 'climb' : 'descent', prefix = kind === 'climb' ? 'sub-climb' : 'sub-descent'; if (amount < threshold + 3)
-        return { kind, label: `gentle ${prefix}` }; if (amount < threshold + 7)
-        return { kind, label: `moderate ${prefix}` }; return { kind, label: `steep ${prefix}` }; };
-    const candidates = Array.from({ length: Math.max(0, parent.b - parent.a) }, (_, offset) => band(parent.a + offset));
-    const byLabel = new Map(candidates.map(candidate => [candidate.label, candidate]));
-    const runs = persistentRuns(candidates.map(candidate => candidate.label), p.slice(parent.a, parent.b + 1).map(point => point.d), minimum);
-    const output: S[] = runs.map(run => {
-        const candidate = byLabel.get(run.value)!;
-        return { k: candidate.kind, a: parent.a + run.a, b: parent.a + run.b, label: candidate.label };
-    });
-    const labelled = output.map(section => { const distance = len(section), grade = distance > 0 ? (p[section.b].ele! - p[section.a].ele!) / distance * 100 : 0, amount = Math.abs(grade); if (amount < threshold)
-        return { ...section, k: 'rolling' as K, label: 'sub-rolling' }; const kind: K = grade > 0 ? 'climb' : 'descent', prefix = kind === 'climb' ? 'sub-climb' : 'sub-descent', level = amount < threshold + 3 ? 'gentle' : amount < threshold + 7 ? 'moderate' : 'steep', label = kind === parent.k ? `${level} ${prefix}` : `local counter-slope ${level} ${kind}`; return { ...section, k: kind, label }; });
-    return labelled.reduce<S[]>((all, section) => { const previous = all.at(-1); if (previous && previous.label === section.label)
-        previous.b = section.b;
-    else
-        all.push(section); return all; }, []);
-}
 function render(e: number[]) { profile = e; hovered = null; hoverDistance = null; result.hidden = false; status.textContent = `${routeName ? `${routeName}: ` : ''}${p.length.toLocaleString()} points analysed across ${fmt(p.at(-1)!.d)}.${routeWarnings.length ? ` ${routeWarnings.join(' ')}` : ''}`; const ds: Record<K, number> = { climb: 0, descent: 0, flat: 0, rolling: 0 }; ss.forEach(s => ds[s.k] += len(s)); $('#stats').innerHTML = ([...Object.entries(ds), ['climb', `+${Math.round(tot.up)} m`], ['descent', `−${Math.round(tot.down)} m`]] as [
     K,
     string | number

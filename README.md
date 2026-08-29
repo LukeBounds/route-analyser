@@ -40,8 +40,9 @@ The app also includes **Bob Graham — Luke’s Version** as a bundled example r
 ## Source layout
 
 - `src/core.ts` contains reusable, DOM-independent distance, formatting, persistence, and route-matching calculations.
-- `src/main.ts` owns browser state, GPX XML extraction, terrain analysis, charts, tables, and exports.
-- `tests/core.test.ts` contains regression coverage for the calculation core.
+- `src/terrain.ts` contains the DOM-independent terrain smoothing, classification, bridging, and subsection engine.
+- `src/main.ts` currently owns browser state, GPX XML extraction, charts, tables, and exports; the staged split is tracked in `REFACTOR.md`.
+- `tests/core.test.ts` and `tests/terrain.test.ts` contain regression coverage for the calculation core and terrain rules.
 
 ## Getting started
 
