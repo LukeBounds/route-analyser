@@ -43,6 +43,8 @@ The app also includes **Bob Graham — Luke’s Version** as a bundled example r
 
 - `src/core.ts` contains reusable, DOM-independent distance, formatting, persistence, and route-matching calculations.
 - `src/terrain.ts` contains the DOM-independent terrain smoothing, classification, bridging, and subsection engine.
+- `src/gpx.ts` parses route, named-waypoint, and timestamped-activity GPX data and defines their shared point types.
+- `src/activity.ts` contains DOM-independent activity alignment, moving-time, interpolation, comparison, and gradient-sample calculations.
 - `src/waypoints.ts` defines the shared endpoint-elevation and segment-geometry rules for waypoint analysis.
 - `src/pace.ts` contains pace/VAM parsing, validation, interpolation, and cumulative route prediction.
 - `src/paceLibrary.ts` defines versioned browser-storage data and migration from earlier curve formats.

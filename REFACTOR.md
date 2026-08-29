@@ -182,6 +182,18 @@ Phase 4 result: chart rendering now lives under `src/charts/`. Pace and speed us
 
 Phase 5 result: CSV generation now has one formula-safe encoder, elevation lookup is isolated behind a provider contract, and route matching uses metre-based progress windows with explicit ambiguity metrics for crossings and retraces. Large traces retain full detail and receive visible performance guidance. Current browser smoke testing and the bundled long route did not show UI blocking that justified the complexity of a worker; the pure calculation modules remain worker-ready if profiling of 100,000+ point traces later demonstrates a need. Page styles are consolidated out of `index.html`, share light/dark custom properties, and canvas renderers read the same theme. The README and CI now consistently use pnpm.
 
+### Phase 6 — extract GPX and activity domains
+
+- [x] Move route, waypoint, and recorded-activity GPX parsing out of `main.ts`.
+- [x] Define shared route, waypoint, and activity point types at the parsing boundary.
+- [x] Extract activity alignment, moving-time, interpolation, comparison, and gradient-sample calculations.
+- [x] Add regression coverage for pause gaps, stationary-rest detection, interpolation, and comparison.
+- [x] Keep file controls, status messages, and rendering in the page controller.
+
+This phase addresses the remaining domain logic in `main.ts` without combining it with a simultaneous UI-controller rewrite. GPX parsing may use browser XML APIs, but it must not read application controls or mutate page state. Activity calculations must remain pure and independently testable.
+
+Phase 6 result: `src/gpx.ts` now owns route, named-waypoint, and timestamped-activity XML extraction and defines the shared point types used by the application. `src/activity.ts` owns route alignment, moving-time filtering, predicted/actual interpolation, interval comparison, and actual gradient samples. `main.ts` supplies control values and presents errors but no longer implements those calculations. Regression fixtures cover recording gaps, optional stationary-rest removal, interpolation boundaries, comparisons, and 100 m actual-pace samples.
+
 ## Required regression coverage
 
 Before intentionally changing terrain behaviour, add compact synthetic routes covering:

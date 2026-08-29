@@ -5,7 +5,6 @@ import { maximumValue } from './charts/canvas';
 import {
     drawActivityComparisonChart,
     drawActivityGradientChart,
-    type ActivityGradientSample,
 } from './charts/activityCharts';
 import {
     drawCurveComparisonChart,
@@ -14,21 +13,35 @@ import {
 } from './charts/curveComparisonChart';
 import { drawTerrainProfile, terrainDistanceAt } from './charts/terrainProfileChart';
 import {
-    accumulateSegments,
     escapeHtml,
     formatDuration,
     formatPace,
     haversineMeters,
     isConfidentRouteMatch,
-    matchRouteSamples,
-    selectLongestRouteChain,
     type PaceCurvePoint,
     type RouteMatchQuality,
     type StoredPaceCurve,
 } from './core';
+import {
+    alignActivityToRoute,
+    calculateActivityMovingTime,
+    compareActivityTimes,
+    createActivityGradientSamples,
+    interpolateActivityMovingTime,
+    interpolateRouteCumulativeTime,
+    type ActivityPoint,
+} from './activity';
 import { downloadCsv, type CsvValue } from './csv';
 import { createMapterhornProvider } from './elevation';
 import { largeTraceGuidance } from './largeTrace';
+import {
+    parseActivityGpx,
+    parseRouteGpx,
+    type NamedWaypoint,
+    type ParsedRoute,
+    type RecordedActivityPoint,
+    type RoutePoint,
+} from './gpx';
 import {
     createPaceInterpolator,
     isSemanticallyValidPacePoint,
@@ -64,34 +77,11 @@ let paceEstimate: {
     sections: number[];
 } | null = null;
 const collapsedPrimary = new Set<number>();
-type P = {
-    lat: number;
-    lon: number;
-    ele: number | null;
-    d: number;
-    segment: number;
-    breakBefore: boolean;
-};
-type W = {
-    name: string;
-    lat: number;
-    lon: number;
-    ele: number | null;
-};
+type P = RoutePoint;
+type W = NamedWaypoint;
 type RouteWaypoint = {
     waypoint: W;
     index: number;
-};
-type ActivityPoint = {
-    lat: number;
-    lon: number;
-    ele: number | null;
-    time: number;
-    d: number;
-    moving: number;
-    routeD: number;
-    segment: number;
-    breakBefore: boolean;
 };
 let activity: ActivityPoint[] = [], routePrediction: RoutePacePrediction | null = null, activityMatchQuality: RouteMatchQuality | null = null;
 const A = document.querySelector<HTMLDivElement>('#app')!, C: Record<K, string> = { climb: '#c84735', descent: '#31805a', flat: '#607183', rolling: '#b67812' };
@@ -669,48 +659,6 @@ exampleRouteButton.onclick = async () => {
     }
 };
 settingsControls.replaceChildren(settingsGroup('Route', routeFile, exampleRouteControl), settingsGroup('Recorded activity', activityControl, pauseControl, restDetectionControl, movingSpeedControl), settingsGroup('Terrain classification', gradeControl, windowControl, minimumControl, smoothingControl), settingsGroup('Joining interruptions', bridgeControl, counterControl, counterLengthControl, counterReversalControl));
-type ParsedRoute = { points: P[]; waypoints: W[]; warnings: string[] };
-const childText = (element: Element, name: string) => [...element.children].find(child => child.localName === name)?.textContent;
-const parsePoint = (element: Element) => {
-    const elevationText = childText(element, 'ele'), elevation = elevationText === undefined ? null : Number(elevationText);
-    return {
-        lat: Number(element.getAttribute('lat')),
-        lon: Number(element.getAttribute('lon')),
-        ele: Number.isFinite(elevation) ? elevation : null,
-    };
-};
-const validPoints = (elements: Element[]) => elements.map(parsePoint).filter(point => Number.isFinite(point.lat) && Number.isFinite(point.lon));
-function parse(x: string): ParsedRoute {
-    const document = new DOMParser().parseFromString(x, 'application/xml');
-    if (document.querySelector('parsererror'))
-        throw Error('This GPX could not be read.');
-    const parsedWaypoints = [...document.querySelectorAll('wpt')].flatMap(element => {
-        const name = childText(element, 'name')?.trim();
-        if (!name)
-            return [];
-        const point = parsePoint(element);
-        return [{ ...point, name }];
-    }).filter(point => Number.isFinite(point.lat) && Number.isFinite(point.lon));
-    const trackSources = [...document.querySelectorAll('trk')].map(track => {
-        const trackSegments = [...track.children].filter(child => child.localName === 'trkseg');
-        const segments = trackSegments.map(segment => validPoints([...segment.children].filter(child => child.localName === 'trkpt'))).filter(segment => segment.length >= 2);
-        if (segments.length)
-            return segments;
-        const directPoints = validPoints([...track.children].filter(child => child.localName === 'trkpt'));
-        return directPoints.length >= 2 ? [directPoints] : [];
-    });
-    const routeSources = [...document.querySelectorAll('rte')].map(route => [validPoints([...route.children].filter(child => child.localName === 'rtept'))]).filter(source => source[0].length >= 2);
-    const selected = selectLongestRouteChain([...trackSources, ...routeSources]);
-    if (selected.points.length < 3)
-        throw Error('No usable GPX track or route was found.');
-    const points = accumulateSegments([selected.points]) as P[];
-    if ((points.at(-1)?.d ?? 0) < 10)
-        throw Error('The selected trace does not contain at least 10 m of usable route distance.');
-    const warnings = selected.discardedChains
-        ? [`Ignored ${selected.discardedChains} disconnected GPX ${selected.discardedChains === 1 ? 'part' : 'parts'} instead of adding artificial distance between them.`]
-        : [];
-    return { points, waypoints: parsedWaypoints, warnings };
-}
 function setParsedRoute(parsed: ParsedRoute) {
     p = parsed.points;
     waypoints = parsed.waypoints;
@@ -730,7 +678,7 @@ function loadRouteText(text: string, name: string, fileBytes = new Blob([text]).
     activityFile.value = '';
     activityPanel.hidden = true;
     routeName = name;
-    const parsed = parse(text), largeTraceWarning = largeTraceGuidance('route', parsed.points.length, fileBytes);
+    const parsed = parseRouteGpx(text), largeTraceWarning = largeTraceGuidance('route', parsed.points.length, fileBytes);
     if (largeTraceWarning)
         parsed.warnings.push(largeTraceWarning);
     setParsedRoute(parsed);
@@ -842,68 +790,34 @@ function buildRoutePrediction() { const curve = curvePoints(); if (curve.length 
     routePrediction = null;
     return null;
 } return routePrediction = predictRoutePace(p, profile, curve); }
-function parseActivity(text: string): ActivityPoint[] {
-    const xml = new DOMParser().parseFromString(text, 'application/xml');
-    if (xml.querySelector('parsererror'))
-        throw Error('This activity GPX could not be read.');
-    const tracks = [...xml.querySelectorAll('trk')].map(track => {
-        const trackSegments = [...track.children].filter(child => child.localName === 'trkseg');
-        const segmentElements = trackSegments.length ? trackSegments : [track];
-        return segmentElements.map(segment => [...segment.children].filter(child => child.localName === 'trkpt').map(point => {
-        const parsed = parsePoint(point), time = Date.parse(childText(point, 'time') || '');
-        return { ...parsed, time };
-    }).filter(point => Number.isFinite(point.lat) && Number.isFinite(point.lon) && Number.isFinite(point.time)))
-            .filter(segment => segment.length);
-    });
-    const candidates = tracks.map(segments => ({ segments, points: accumulateSegments(segments) })).filter(candidate => candidate.points.length >= 3)
-        .sort((a, b) => (b.points.at(-1)?.d ?? 0) - (a.points.at(-1)?.d ?? 0) || b.points.length - a.points.length);
-    const selected = candidates[0];
-    if (!selected)
-        throw Error('The activity needs at least three timestamped track points.');
-    return selected.points.map(point => ({ ...point, moving: 0, routeD: 0 }));
+function activityMovingSettings() {
+    return {
+        gapCutoffSeconds: Number(activityPause.value),
+        detectStationaryRests: activityRestDetection.checked,
+        minimumMovingSpeedKmh: Number(activityMovingSpeed.value),
+    };
 }
-function applyActivityMovingTime(points: ActivityPoint[]) {
-    const gapCutoff = Number(activityPause.value) * 1000, minimumSpeed = activityRestDetection.checked ? Number(activityMovingSpeed.value) / 3.6 : 0, windowRadius = 15000;
-    let moving = 0, left = 0, right = 0;
-    return points.map((point, index) => {
-        while (left < index && (points[left].segment !== point.segment || point.time - points[left].time > windowRadius))
-            left++;
-        right = Math.max(right, index);
-        while (right + 1 < points.length && points[right + 1].segment === point.segment && points[right + 1].time - point.time <= windowRadius)
-            right++;
-        if (index && !point.breakBefore && points[index - 1].segment === point.segment) {
-            const elapsed = point.time - points[index - 1].time, windowSeconds = (points[right].time - points[left].time) / 1000, windowSpeed = windowSeconds > 0 ? hav(points[left], points[right]) / windowSeconds : 0;
-            if (elapsed >= 0 && elapsed <= gapCutoff && windowSpeed >= minimumSpeed)
-                moving += elapsed / 1000;
-        }
-        return { ...point, moving };
-    });
-}
-function matchActivityToRoute(points: ActivityPoint[]) {
+function matchActivityToRoute(points: RecordedActivityPoint[]) {
     if (!p.length)
         throw Error('Upload and analyse a route before an activity.');
-    const match = matchRouteSamples(p, points);
-    activityMatchQuality = match.quality;
-    if (match.quality.orientation === 'reverse')
+    const aligned = alignActivityToRoute(p, points);
+    activityMatchQuality = aligned.quality;
+    if (aligned.quality.orientation === 'reverse')
         throw Error('This activity appears to follow the route in reverse. Reverse-direction comparison is detected, but is not yet supported.');
-    if (!isConfidentRouteMatch(match.quality))
-        throw Error(`The activity could not be matched confidently to this route (median error ${Math.round(match.quality.medianError)} m, 90th percentile ${Math.round(match.quality.p90Error)} m, ${Math.round(match.quality.within150m)}% within 150 m, ${Math.round(match.quality.ambiguousPercent)}% route-position ambiguous).`);
-    const matched = points.map((point, index) => ({ ...point, routeD: p[match.indices[index]].d }));
-    return applyActivityMovingTime(matched);
+    if (!isConfidentRouteMatch(aligned.quality))
+        throw Error(`The activity could not be matched confidently to this route (median error ${Math.round(aligned.quality.medianError)} m, 90th percentile ${Math.round(aligned.quality.p90Error)} m, ${Math.round(aligned.quality.within150m)}% within 150 m, ${Math.round(aligned.quality.ambiguousPercent)}% route-position ambiguous).`);
+    return calculateActivityMovingTime(aligned.points, activityMovingSettings());
 }
-function interpolateRouteTime(distance: number) { if (!routePrediction || distance < 0 || distance > p.at(-1)!.d)
-    return null; const index = locate(distance); if (index === 0)
-    return routePrediction.cumulative[0]; const a = p[index - 1], b = p[index], fraction = (distance - a.d) / Math.max(1, b.d - a.d); return routePrediction.cumulative[index - 1] + (routePrediction.cumulative[index] - routePrediction.cumulative[index - 1]) * fraction; }
-function interpolateActivityTime(distance: number) { if (activity.length < 2 || distance < activity[0].routeD || distance > activity.at(-1)!.routeD)
-    return null; let low = 0, high = activity.length - 1; while (low < high) {
-    const middle = (low + high) >> 1;
-    activity[middle].routeD < distance ? low = middle + 1 : high = middle;
-} if (low === 0)
-    return activity[0].moving; const a = activity[low - 1], b = activity[low], span = b.routeD - a.routeD; if (span < 1)
-    return b.moving; return a.moving + (b.moving - a.moving) * (distance - a.routeD) / span; }
+function interpolateRouteTime(distance: number) {
+    return routePrediction ? interpolateRouteCumulativeTime(p, routePrediction.cumulative, distance) : null;
+}
+function interpolateActivityTime(distance: number) {
+    return interpolateActivityMovingTime(activity, distance);
+}
 function signedDuration(seconds: number) { const sign = seconds > 0 ? '+' : seconds < 0 ? '−' : ''; return `${sign}${durationText(Math.abs(seconds))}`; }
-function activityComparison(from: number, to: number) { const expectedStart = interpolateRouteTime(from), expectedEnd = interpolateRouteTime(to), actualStart = interpolateActivityTime(from), actualEnd = interpolateActivityTime(to); if (expectedStart === null || expectedEnd === null || actualStart === null || actualEnd === null)
-    return null; const expected = expectedEnd - expectedStart, actual = actualEnd - actualStart; return { expected, actual, delta: actual - expected }; }
+function activityComparison(from: number, to: number) {
+    return compareActivityTimes(from, to, interpolateRouteTime, interpolateActivityTime);
+}
 function drawActivityComparison() {
     const canvas = activityPanel.querySelector<HTMLCanvasElement>('#activity-chart');
     if (!canvas || !routePrediction || activity.length < 2)
@@ -925,22 +839,8 @@ function drawActivityComparison() {
         formatDistance: fmt,
     });
 }
-function activityGradientSamples(): ActivityGradientSample[] {
-    const samples: ActivityGradientSample[] = [];
-    let start = 0;
-    for (let end = 1; end < activity.length; end++) {
-        const distance = activity[end].routeD - activity[start].routeD;
-        if (distance < 100)
-            continue;
-        const seconds = activity[end].moving - activity[start].moving;
-        const midpoint = (activity[end].routeD + activity[start].routeD) / 2;
-        const grade = localGradeAtDistance(p, profile, midpoint);
-        const pace = seconds / (distance / 1000);
-        if (seconds > 0 && Number.isFinite(pace) && pace > 30 && pace < 7200)
-            samples.push({ grade, pace });
-        start = end;
-    }
-    return samples;
+function activityGradientSamples() {
+    return createActivityGradientSamples(activity, distance => localGradeAtDistance(p, profile, distance));
 }
 function drawActivityGradient() {
     const canvas = activityPanel.querySelector<HTMLCanvasElement>('#activity-gradient-chart');
@@ -980,12 +880,12 @@ function renderActivityAnalysis() { if (!activity.length) {
     }, curveName = escapeHtml(viewModel.curveName); activityPanel.innerHTML = `<div class="prediction-head"><div><p class="eyebrow">Activity versus ${curveName}</p><h2>${signedDuration(viewModel.differenceSeconds)}</h2></div><p>${durationText(viewModel.actualSeconds)} moving versus ${durationText(viewModel.expectedSeconds)} predicted across ${viewModel.coveragePercent.toFixed(0)}% of the route. Positive means slower than predicted.</p></div><div class="activity-stats"><article><b>${durationText(viewModel.elapsedSeconds)}</b><span>Elapsed time</span></article><article><b>${durationText(viewModel.actualSeconds)}</b><span>Moving time</span></article><article><b>${durationText(viewModel.expectedSeconds)}</b><span>Predicted time · ${curveName}</span></article><article><b>${paceText(viewModel.actualSeconds / (viewModel.distance / 1000))}/km</b><span>Actual average pace</span></article></div><p class="match-quality"><b>Route match:</b> ${viewModel.qualityText}</p><button type="button" id="activity-csv">Download activity comparison CSV</button><canvas id="activity-chart" aria-label="Actual and predicted cumulative moving time">Actual and predicted values are included in the terrain and waypoint tables.</canvas><h3>Actual pace against the curve</h3><canvas id="activity-gradient-chart" aria-label="Actual pace samples against the pace curve">The activity summary and section comparisons provide a text alternative to this chart.</canvas><details class="calibration" open><summary>Calibration indications</summary><p>These observations describe this activity; keep effort level and terrain context in mind before changing a curve.</p><ul>${viewModel.guidanceHtml}</ul></details>`; activityPanel.querySelector<HTMLButtonElement>('#activity-csv')!.onclick = downloadActivityCsv; renderTerrainTable(); renderWaypointSegments(); drawActivityComparison(); drawActivityGradient(); }
 activityFile.onchange = async () => { const file = activityFile.files?.[0]; if (!file)
     return; error.textContent = ''; try {
-    const text = await file.text(), recorded = parseActivity(text), largeActivityWarning = largeTraceGuidance('activity', recorded.length, file.size), useAsRoute = !p.length || !profile.length;
+    const text = await file.text(), recorded = parseActivityGpx(text), largeActivityWarning = largeTraceGuidance('activity', recorded.length, file.size), useAsRoute = !p.length || !profile.length;
     if (useAsRoute) {
         result.hidden = true;
         fill.hidden = true;
         routePrediction = null;
-        const parsed = parse(text);
+        const parsed = parseRouteGpx(text);
         if (largeActivityWarning)
             parsed.warnings.push(largeActivityWarning);
         setParsedRoute(parsed);
