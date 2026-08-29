@@ -10,6 +10,7 @@ import {
     persistentRuns,
     selectLongestRouteChain,
 } from '../src/core.js';
+import { builtInPaceCurves } from '../src/builtInPaceCurves.js';
 
 function equal<T>(actual: T, expected: T, message: string): void {
     if (actual !== expected) {
@@ -35,6 +36,15 @@ const paceBackup = parsePaceCurveBackup({
 });
 equal(paceBackup?.curves[0].name, 'Steady', 'a valid named pace-curve backup is accepted');
 equal(parsePaceCurveBackup({ format: 'route-analyser-pace-curves', version: 1, curves: [{ id: 'bad', name: '', points: [] }] }), null, 'a malformed pace-curve backup is rejected');
+
+equal(builtInPaceCurves.length, 4, 'all supplied pace curves are built in');
+equal(builtInPaceCurves.map(curve => curve.name).join('|'), '21h|24h|Optimistic|24h Slower Downhill', 'built-in pace curves retain their supplied names');
+builtInPaceCurves.forEach(curve => {
+    equal(curve.points.length, 25, `${curve.name} has a value at every standard grade`);
+    ok(curve.points.every(point => Number.isFinite(point.grade) && typeof point.pace === 'string' && point.pace.length > 0), `${curve.name} contains valid pace values`);
+});
+equal(builtInPaceCurves[0].points.find(point => point.grade === 0)?.pace, '7:00', 'the 21h zero-grade pace matches the supplied curve');
+equal(builtInPaceCurves[3].points.find(point => point.grade === -40)?.pace, 'vam:825', 'the slower-downhill curve matches the supplied descent VAM');
 
 const nearby = joinNearbySegments([
     [{ lat: 51, lon: 0 }, { lat: 51.001, lon: 0 }],

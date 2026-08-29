@@ -83,11 +83,112 @@
   font-weight: 500;
 }
 
-.pace-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
+.pace-editor-toolbar {
+  display: grid;
+  grid-template-columns: minmax(210px, .8fr) minmax(360px, 1.4fr);
+  gap: 12px;
+  margin: 18px 0 0;
+}
+
+.pace-editor-name {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  margin: 0 0 14px;
+  color: #34465d;
+  font-size: .9rem;
+  font-weight: 700;
+}
+
+.pace-editor-name input {
+  width: 100%;
+  padding: 10px 11px;
+  border: 1px solid #b9c7d8;
+  border-radius: 8px;
+  background: #fff;
+  color: #1d2732;
+  font: inherit;
+}
+
+.curve-data-heading {
+  margin: 0 0 12px;
+  color: #34465d;
+  font-size: .9rem;
+  font-weight: 700;
+}
+
+.pace-workspace-section {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid #dce1e7;
+}
+
+.pace-section-header {
+  margin-bottom: 18px;
+}
+
+.pace-section-header h3 {
+  margin: 0;
+  color: #26384d;
+  font-size: 1.35rem;
+}
+
+.pace-section-header p {
+  margin: 5px 0 0;
+  color: #667281;
+  font-size: .9rem;
+  line-height: 1.45;
+}
+
+.pace-editor-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 12px;
+  align-items: end;
+  padding: 14px;
+  border: 1px solid #cbd8e8;
+  border-radius: 10px;
+  background: #f4f8ff;
+}
+
+.pace-editor-action strong,
+.pace-editor-action span {
+  grid-column: 1 / -1;
+}
+
+.pace-editor-action strong {
+  color: #26384d;
+  font-size: .95rem;
+}
+
+.pace-editor-action span {
+  color: #667281;
+  font-size: .8rem;
+  line-height: 1.35;
+}
+
+.pace-editor-action label {
+  display: grid;
+  gap: 4px;
+  color: #667281;
+  font-size: .78rem;
+  font-weight: 650;
+}
+
+.pace-editor-action select {
+  width: 100%;
+  min-width: 180px;
+  padding: 9px 10px;
+  border: 1px solid #cbd3db;
+  border-radius: 8px;
+  background: #fff;
+  color: #1d2732;
+  font: inherit;
+}
+
+.pace-editor-action:not(.built-in-loader) button {
+  grid-column: 1 / -1;
+  justify-self: start;
 }
 
 .curve-library {
@@ -107,6 +208,11 @@
   color: #34465d;
   font-size: .85rem;
   font-weight: 700;
+}
+
+.curve-library > label:first-child {
+  grid-column: 1 / -1;
+  max-width: 420px;
 }
 
 .curve-library-actions {
@@ -214,6 +320,11 @@
   margin-top: 24px;
 }
 
+#pace-chart,
+#speed-chart {
+  cursor: crosshair;
+}
+
 .controls.settings-groups {
   display: grid;
   grid-template-columns: 1fr;
@@ -247,6 +358,38 @@
 
 .settings-group input {
   width: 100%;
+}
+
+.settings-group select {
+  width: 100%;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid #cbd3db;
+  border-radius: 7px;
+  background: #fff;
+  color: inherit;
+}
+
+.example-route-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px 10px;
+  align-content: start;
+}
+
+.example-route-control button {
+  align-self: end;
+}
+
+.example-route-control small {
+  grid-column: 1 / -1;
+  color: #667281;
+  line-height: 1.35;
+}
+
+.example-route-control button:disabled {
+  cursor: not-allowed;
+  opacity: .55;
 }
 
 .analysis-divider {
@@ -334,6 +477,18 @@
 @media (max-width: 760px) {
   .curve-library {
     grid-template-columns: 1fr;
+  }
+
+  .pace-editor-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .built-in-loader {
+    grid-template-columns: 1fr;
+  }
+
+  .built-in-loader button {
+    justify-self: start;
   }
 
   .settings-group {

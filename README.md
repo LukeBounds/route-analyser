@@ -10,8 +10,12 @@ Route Analyser turns GPX routes into climb, descent, rolling, and flat sections,
 4. Enter or edit a personal pace curve by gradient.
 5. Calculate section splits and predicted total time.
 
+The app also includes **Bob Graham — Luke’s Version** as a bundled example route. It can be loaded from the route settings without choosing a local file.
+
 ## Pace curves
 
+- New browsers start with four built-in curves: **21h**, **24h**, **Optimistic**, and **24h Slower Downhill**.
+- Any built-in curve can be loaded into the selected editable curve without affecting other saved curves.
 - Create, duplicate, rename, and delete multiple named pace curves in the browser.
 - Compare any selection of saved curves on shared pace and speed charts; optionally add dashed VAM overlays.
 - Select the curve used for route and recorded-activity predictions from the route results.

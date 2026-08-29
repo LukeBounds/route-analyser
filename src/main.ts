@@ -1,5 +1,6 @@
 import './style.css';
 import './pace.css';
+import { builtInPaceCurves, type BuiltInPaceCurve } from './builtInPaceCurves';
 import {
     accumulateSegments,
     escapeHtml,
@@ -66,7 +67,7 @@ type RoutePrediction = {
 };
 let activity: ActivityPoint[] = [], routePrediction: RoutePrediction | null = null, activityMatchQuality: RouteMatchQuality | null = null;
 const A = document.querySelector<HTMLDivElement>('#app')!, C: Record<K, string> = { climb: '#c84735', descent: '#31805a', flat: '#607183', rolling: '#b67812' };
-let p: P[] = [], waypoints: W[] = [], routeWaypoints: {
+let p: P[] = [], waypoints: W[] = [], routeName = '', routeWaypoints: {
     waypoint: W;
     index: number;
 }[] = [], ss: S[] = [], ms: M[] = [], tot = { up: 0, down: 0 }, profile: number[] = [], routeWarnings: string[] = [], hovered: number | null = null, hoverDistance: number | null = null, selectionStart: number | null = null, selectionEnd: number | null = null, viewStart = 0, viewEnd = Infinity;
@@ -140,16 +141,18 @@ header.prepend(pageNav);
 window.addEventListener('hashchange', () => location.reload());
 type PacePoint = PaceCurvePoint;
 type SavedPaceCurve = StoredPaceCurve;
-const legacyPaceStorage = 'route-analyser.pace-curve', paceLibraryStorage = 'route-analyser.pace-curves', selectedPaceCurveStorage = 'route-analyser.selected-pace-curve', defaultPaceCurve: PacePoint[] = [{ grade: -40, pace: 'vam:1600' }, { grade: -35, pace: 'vam:1500' }, { grade: -30, pace: 'vam:1400' }, { grade: -25, pace: 'vam:1300' }, { grade: -20, pace: 'vam:1200' }, { grade: -15, pace: 'vam:1100' }, { grade: -10, pace: '7:00' }, { grade: -5, pace: '6:10' }, { grade: -4, pace: '6:10' }, { grade: -3, pace: '6:10' }, { grade: -2, pace: '6:20' }, { grade: -1, pace: '6:30' }, { grade: 0, pace: '6:50' }, { grade: 1, pace: '7:10' }, { grade: 2, pace: '7:30' }, { grade: 3, pace: '10:40' }, { grade: 4, pace: '11:00' }, { grade: 5, pace: '11:30' }, { grade: 10, pace: 'vam:500' }, { grade: 15, pace: 'vam:550' }, { grade: 20, pace: 'vam:600' }, { grade: 25, pace: 'vam:650' }, { grade: 30, pace: 'vam:700' }, { grade: 35, pace: 'vam:725' }, { grade: 40, pace: 'vam:750' }], cloneDefaultPaceCurve = () => defaultPaceCurve.map(point => ({ ...point })), createPaceCurveId = () => typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `curve-${Date.now()}-${Math.random().toString(36).slice(2)}`, loadPaceLibrary = (): SavedPaceCurve[] => {
+const legacyPaceStorage = 'route-analyser.pace-curve', paceLibraryStorage = 'route-analyser.pace-curves', selectedPaceCurveStorage = 'route-analyser.selected-pace-curve', createPaceCurveId = () => typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `curve-${Date.now()}-${Math.random().toString(36).slice(2)}`, cloneBuiltInPaceCurve = (curve: BuiltInPaceCurve = builtInPaceCurves[0]) => curve.points.map(point => ({ ...point })), createBuiltInPaceLibrary = (): SavedPaceCurve[] => builtInPaceCurves.map(curve => ({ id: createPaceCurveId(), name: curve.name, points: cloneBuiltInPaceCurve(curve) })), loadPaceLibrary = (): SavedPaceCurve[] => {
     try {
         const stored = JSON.parse(localStorage.getItem(paceLibraryStorage) || 'null');
         if (Array.isArray(stored) && stored.length && stored.every(isStoredPaceCurve))
             return stored.map(curve => ({ ...curve, points: curve.points.map(point => ({ ...point })) }));
-        const legacy = JSON.parse(localStorage.getItem(legacyPaceStorage) || 'null'), points = Array.isArray(legacy) && legacy.every(isPaceCurvePoint) ? legacy.map(point => ({ ...point })) : cloneDefaultPaceCurve();
-        return [{ id: createPaceCurveId(), name: 'My pace curve', points }];
+        const legacy = JSON.parse(localStorage.getItem(legacyPaceStorage) || 'null');
+        if (Array.isArray(legacy) && legacy.every(isPaceCurvePoint))
+            return [{ id: createPaceCurveId(), name: 'My pace curve', points: legacy.map(point => ({ ...point })) }];
+        return createBuiltInPaceLibrary();
     }
     catch {
-        return [{ id: createPaceCurveId(), name: 'My pace curve', points: cloneDefaultPaceCurve() }];
+        return createBuiltInPaceLibrary();
     }
 };
 let paceCurves = loadPaceLibrary(), activePaceCurveId = (() => { try {
@@ -181,10 +184,20 @@ let paceChartPreferences = loadPaceChartPreferences();
 const pacePanel = document.createElement('section');
 pacePanel.className = 'panel';
 pacePanel.id = 'pace-panel';
-pacePanel.innerHTML = `<h2>Your pace curves</h2><p>Create named curves for different effort levels or conditions. Curves and edits are stored only in this browser.</p><div class="curve-library"><label>Saved curve<select id="pace-curve-select"></select></label><label>Curve name<input id="pace-curve-name" type="text" maxlength="80"></label><div class="curve-library-actions"><button id="new-pace-curve" type="button">New curve</button><button id="duplicate-pace-curve" type="button">Duplicate</button><button id="delete-pace-curve" type="button">Delete</button><button id="export-pace-curves" type="button">Export all</button><label class="file-button">Import backup<input id="import-pace-curves" type="file" accept=".json,application/json"></label></div><p id="pace-library-status" role="status"></p></div><fieldset class="curve-comparison"><legend>Chart comparison</legend><p>Select the saved curves to plot together.</p><div id="curve-comparison-list"></div><div class="chart-series-controls"><label><input id="show-pace-curves" type="checkbox" checked> Pace chart</label><label><input id="show-speed-curves" type="checkbox" checked> Speed chart</label><label><input id="show-vam-curves" type="checkbox"> VAM overlays</label></div><div id="curve-chart-legend"></div></fieldset><div id="pace-editor"><table><thead><tr><th>Grade</th><th>Pace</th><th></th></tr></thead><tbody></tbody></table><div class="pace-actions"><button id="add-pace-point" type="button">Add grade point</button><button id="load-default-pace" type="button">Load default curve</button></div></div><h3 id="pace-chart-heading">Pace comparison</h3><canvas id="pace-chart" aria-label="Pace curve comparison"></canvas><p id="pace-note">Pace is in minutes per kilometre, for example 6:30.</p></section>`;
-pacePanel.querySelector('#pace-editor')!.after(pacePanel.querySelector('.curve-comparison')!);
+pacePanel.innerHTML = `<h2>Your pace curves</h2><p>Create named curves for different effort levels or conditions. New browsers start with the built-in curves; curves and edits are stored only in this browser.</p><div class="curve-library"><label>Saved curve<select id="pace-curve-select"></select></label><label>Curve name<input id="pace-curve-name" type="text" maxlength="80"></label><div class="curve-library-actions"><button id="new-pace-curve" type="button">New curve</button><button id="duplicate-pace-curve" type="button">Duplicate</button><button id="delete-pace-curve" type="button">Delete</button><button id="export-pace-curves" type="button">Export all</button><label class="file-button">Import backup<input id="import-pace-curves" type="file" accept=".json,application/json"></label></div><p id="pace-library-status" role="status"></p></div><fieldset class="curve-comparison"><legend>Chart comparison</legend><p>Select the saved curves to plot together.</p><div id="curve-comparison-list"></div><div class="chart-series-controls"><label><input id="show-pace-curves" type="checkbox" checked> Pace chart</label><label><input id="show-speed-curves" type="checkbox" checked> Speed chart</label><label><input id="show-vam-curves" type="checkbox"> VAM overlays</label></div><div id="curve-chart-legend"></div></fieldset><div id="pace-editor"><div class="pace-editor-toolbar"><div class="pace-editor-action"><strong>Edit grade points</strong><span>Add another gradient to the selected curve.</span><button id="add-pace-point" type="button">＋ Add grade point</button></div><div class="pace-editor-action built-in-loader"><strong>Load built-in values</strong><span>Replace the selected curve’s points with a built-in curve.</span><label>Built-in curve<select id="built-in-pace-select">${builtInPaceCurves.map(curve => `<option value="${escapeHtml(curve.key)}">${escapeHtml(curve.name)}</option>`).join('')}</select></label><button id="load-built-in-pace" type="button">Load values</button></div></div><table><thead><tr><th>Grade</th><th>Pace</th><th></th></tr></thead><tbody></tbody></table></div><h3 id="pace-chart-heading">Pace comparison</h3><canvas id="pace-chart" aria-label="Pace curve comparison"></canvas><p id="pace-note">Pace is in minutes per kilometre, for example 6:30.</p></section>`;
+const pacePanelIntroduction = pacePanel.querySelector('h2')!.nextElementSibling!;
+pacePanelIntroduction.append(' Export your curve library for safe storage, then import the backup to restore it if your browser data is cleared.');
+const paceEditor = pacePanel.querySelector('#pace-editor')!, paceCurveControl = pacePanel.querySelector('#pace-curve-select')!.closest('label')!, paceCurveNameControl = pacePanel.querySelector('#pace-curve-name')!.closest('label')!;
+paceCurveControl.firstChild!.textContent = 'Curve to edit';
+paceCurveNameControl.className = 'pace-editor-name';
+const curveDataHeading = document.createElement('h3'), editGradePoints = paceEditor.querySelector('.pace-editor-action')!;
+curveDataHeading.className = 'curve-data-heading';
+curveDataHeading.textContent = 'Curve data';
+editGradePoints.querySelector('strong')!.textContent = 'Grade points';
+paceEditor.prepend(paceCurveNameControl, curveDataHeading);
+paceEditor.append(paceEditor.querySelector('.pace-editor-toolbar')!);
 result.before(pacePanel);
-const paceRows = pacePanel.querySelector('tbody')!, paceCanvas = pacePanel.querySelector('canvas')!, paceHeading = pacePanel.querySelector<HTMLElement>('#pace-chart-heading')!, addPace = pacePanel.querySelector<HTMLButtonElement>('#add-pace-point')!, loadDefaultPace = pacePanel.querySelector<HTMLButtonElement>('#load-default-pace')!, paceCurveSelect = pacePanel.querySelector<HTMLSelectElement>('#pace-curve-select')!, paceCurveName = pacePanel.querySelector<HTMLInputElement>('#pace-curve-name')!, newPaceCurve = pacePanel.querySelector<HTMLButtonElement>('#new-pace-curve')!, duplicatePaceCurve = pacePanel.querySelector<HTMLButtonElement>('#duplicate-pace-curve')!, deletePaceCurve = pacePanel.querySelector<HTMLButtonElement>('#delete-pace-curve')!, exportPaceCurves = pacePanel.querySelector<HTMLButtonElement>('#export-pace-curves')!, importPaceCurves = pacePanel.querySelector<HTMLInputElement>('#import-pace-curves')!, paceLibraryStatus = pacePanel.querySelector<HTMLElement>('#pace-library-status')!, comparisonList = pacePanel.querySelector<HTMLElement>('#curve-comparison-list')!, chartLegend = pacePanel.querySelector<HTMLElement>('#curve-chart-legend')!, showPaceCurves = pacePanel.querySelector<HTMLInputElement>('#show-pace-curves')!, showSpeedCurves = pacePanel.querySelector<HTMLInputElement>('#show-speed-curves')!, showVamCurves = pacePanel.querySelector<HTMLInputElement>('#show-vam-curves')!, analysisCurveSelect = analysisCurveControl.querySelector<HTMLSelectElement>('select')!;
+const paceRows = pacePanel.querySelector('tbody')!, paceCanvas = pacePanel.querySelector('canvas')!, paceHeading = pacePanel.querySelector<HTMLElement>('#pace-chart-heading')!, addPace = pacePanel.querySelector<HTMLButtonElement>('#add-pace-point')!, loadBuiltInPace = pacePanel.querySelector<HTMLButtonElement>('#load-built-in-pace')!, builtInPaceSelect = pacePanel.querySelector<HTMLSelectElement>('#built-in-pace-select')!, paceCurveSelect = pacePanel.querySelector<HTMLSelectElement>('#pace-curve-select')!, paceCurveName = pacePanel.querySelector<HTMLInputElement>('#pace-curve-name')!, newPaceCurve = pacePanel.querySelector<HTMLButtonElement>('#new-pace-curve')!, duplicatePaceCurve = pacePanel.querySelector<HTMLButtonElement>('#duplicate-pace-curve')!, deletePaceCurve = pacePanel.querySelector<HTMLButtonElement>('#delete-pace-curve')!, exportPaceCurves = pacePanel.querySelector<HTMLButtonElement>('#export-pace-curves')!, importPaceCurves = pacePanel.querySelector<HTMLInputElement>('#import-pace-curves')!, paceLibraryStatus = pacePanel.querySelector<HTMLElement>('#pace-library-status')!, comparisonList = pacePanel.querySelector<HTMLElement>('#curve-comparison-list')!, chartLegend = pacePanel.querySelector<HTMLElement>('#curve-chart-legend')!, showPaceCurves = pacePanel.querySelector<HTMLInputElement>('#show-pace-curves')!, showSpeedCurves = pacePanel.querySelector<HTMLInputElement>('#show-speed-curves')!, showVamCurves = pacePanel.querySelector<HTMLInputElement>('#show-vam-curves')!, analysisCurveSelect = analysisCurveControl.querySelector<HTMLSelectElement>('select')!;
 const speedHeading = document.createElement('h3');
 speedHeading.textContent = 'Speed comparison';
 const speedCanvas = document.createElement('canvas');
@@ -194,6 +207,13 @@ const vamGuides = document.createElement('label');
 vamGuides.className = 'vam-guides';
 vamGuides.innerHTML = '<input type="checkbox"> Show VAM gridlines';
 pacePanel.append(speedHeading, speedCanvas, vamGuides);
+const comparisonControl = pacePanel.querySelector('.curve-comparison')!, curveLibrary = pacePanel.querySelector('.curve-library')!, paceNote = pacePanel.querySelector('#pace-note')!, viewCurvesSection = document.createElement('section'), editCurvesSection = document.createElement('section');
+viewCurvesSection.className = editCurvesSection.className = 'pace-workspace-section';
+viewCurvesSection.innerHTML = '<div class="pace-section-header"><h3>View and compare</h3><p>Choose the curves and measurements shown on the comparison charts.</p></div>';
+editCurvesSection.innerHTML = '<div class="pace-section-header"><h3>Manage curves</h3><p>Create new curves and edit existing curves.</p></div>';
+viewCurvesSection.append(comparisonControl, paceHeading, paceCanvas, paceNote, speedHeading, speedCanvas, vamGuides);
+editCurvesSection.append(curveLibrary, paceEditor);
+pacePanelIntroduction.after(viewCurvesSection, editCurvesSection);
 const showVamGuides = vamGuides.querySelector('input')!;
 showPaceCurves.checked = paceChartPreferences.showPace;
 showSpeedCurves.checked = paceChartPreferences.showSpeed;
@@ -206,7 +226,7 @@ if (paceOnly) {
     result.hidden = true;
 }
 pacePanel.querySelector('thead tr')!.innerHTML = '<th>Grade</th><th>Method</th><th>Pace / VAM</th><th></th>';
-pacePanel.querySelector('#pace-note')!.textContent = 'Pace is min/km (for example 6:30). VAM is vertical metres per hour; for downhill points it represents descent rate and is converted to an equivalent pace.';
+pacePanel.querySelector('#pace-note')!.textContent = 'Pace is min/km. VAM is vertical metres per hour.';
 const paceSeconds = (pace: string) => { const match = /^(\d{1,2}):(\d{2})$/.exec(pace.trim()); if (!match || Number(match[2]) > 59)
     return null; return Number(match[1]) * 60 + Number(match[2]); }, paceMode = (point: PacePoint) => point.pace.startsWith('vam:') ? 'vam' : 'pace', paceInput = (point: PacePoint) => paceMode(point) === 'vam' ? point.pace.slice(4) : point.pace, paceValue = (point: PacePoint) => { if (paceMode(point) === 'pace')
     return paceSeconds(point.pace); const vam = Number(paceInput(point)); return point.grade !== 0 && Number.isFinite(vam) && vam > 0 ? 36000 * Math.abs(point.grade) / vam : null; }, paceText = formatPace;
@@ -241,19 +261,23 @@ paceRows.addEventListener('click', event => { const button = (event.target as HT
     return; pacePoints.splice(Number(button.dataset.remove), 1); savePace(); renderPace(); redrawHorizontalVamGuides(); });
 addPace.onclick = () => { pacePoints.push({ grade: (pacePoints.length ? Math.max(...pacePoints.map(point => point.grade)) : 0) + 5, pace: '' }); savePace(); renderPace(); redrawHorizontalVamGuides(); };
 renderPace();
-let hoveredPaceGrade: number | null = null;
+let hoveredPaceGrade: number | null = null, hoveredSpeedGrade: number | null = null;
 const curvePoints = () => pacePoints.map(point => ({ ...point, seconds: paceValue(point) })).filter((point): point is PacePoint & {
     seconds: number;
 } => point.seconds !== null).sort((a, b) => a.grade - b.grade);
 function curveBounds(points: (PacePoint & {
     seconds: number;
 })[]) { const minGrade = Math.min(0, Math.floor(Math.min(...points.map(point => point.grade)) / 5) * 5), maxGrade = Math.max(0, Math.ceil(Math.max(...points.map(point => point.grade)) / 5) * 5); return { minGrade, maxGrade }; }
-function findHoveredPace(event: PointerEvent) { const points = comparedPaceCurves().flatMap(item => item.points); if (points.length < 2)
-    return null; const r = paceCanvas.getBoundingClientRect(), { minGrade, maxGrade } = curveBounds(points), x = event.clientX - r.left, plotX = (grade: number) => 54 + (grade - minGrade) / Math.max(1, maxGrade - minGrade) * (r.width - 54 - 58), closest = points.reduce((best, point) => Math.abs(plotX(point.grade) - x) < Math.abs(plotX(best.grade) - x) ? point : best, points[0]); return Math.abs(plotX(closest.grade) - x) < 14 ? closest.grade : null; }
-paceCanvas.addEventListener('pointermove', event => { const grade = findHoveredPace(event); if (grade === hoveredPaceGrade)
+function findHoveredComparisonGrade(canvas: HTMLCanvasElement, event: PointerEvent) { const points = comparedPaceCurves().flatMap(item => item.points); if (points.length < 2)
+    return null; const r = canvas.getBoundingClientRect(), { minGrade, maxGrade } = curveBounds(points), x = event.clientX - r.left, plotX = (grade: number) => 54 + (grade - minGrade) / Math.max(1, maxGrade - minGrade) * (r.width - 54 - 58), closest = points.reduce((best, point) => Math.abs(plotX(point.grade) - x) < Math.abs(plotX(best.grade) - x) ? point : best, points[0]); return Math.abs(plotX(closest.grade) - x) < 14 ? closest.grade : null; }
+paceCanvas.addEventListener('pointermove', event => { const grade = findHoveredComparisonGrade(paceCanvas, event); if (grade === hoveredPaceGrade)
     return; hoveredPaceGrade = grade; redrawHorizontalVamGuides(); });
 paceCanvas.addEventListener('pointerleave', () => { if (hoveredPaceGrade === null)
     return; hoveredPaceGrade = null; redrawHorizontalVamGuides(); });
+speedCanvas.addEventListener('pointermove', event => { const grade = findHoveredComparisonGrade(speedCanvas, event); if (grade === hoveredSpeedGrade)
+    return; hoveredSpeedGrade = grade; redrawHorizontalVamGuides(); });
+speedCanvas.addEventListener('pointerleave', () => { if (hoveredSpeedGrade === null)
+    return; hoveredSpeedGrade = null; redrawHorizontalVamGuides(); });
 function updatePaceEquivalents() { paceRows.querySelectorAll<HTMLTableRowElement>('tr').forEach((row, index) => { const cell = row.cells[2], seconds = paceValue(pacePoints[index]), mode = paceMode(pacePoints[index]), vam = seconds !== null && pacePoints[index].grade !== 0 ? Math.round(36000 * Math.abs(pacePoints[index].grade) / seconds) : null; let output = cell.querySelector('small'); if (!output) {
     output = document.createElement('small');
     cell.append(' ', output);
@@ -444,6 +468,23 @@ function drawSpeedComparison() {
         item.points.forEach(point => { context.beginPath(); context.arc(X(point.grade), Y(3600 / point.seconds), item.curve.id === activePaceCurveId ? 4 : 3, 0, Math.PI * 2); context.fill(); });
     });
     context.textAlign = 'start';
+    if (hoveredSpeedGrade !== null) {
+        const entries = curves.map(item => ({ item, point: item.points.reduce((best, point) => Math.abs(point.grade - hoveredSpeedGrade!) < Math.abs(best.grade - hoveredSpeedGrade!) ? point : best, item.points[0]) })).filter(entry => entry.point), x = X(hoveredSpeedGrade);
+        if (entries.length) {
+            context.strokeStyle = 'rgba(71,85,105,.55)';
+            context.setLineDash([3, 3]);
+            context.beginPath();
+            context.moveTo(x, top);
+            context.lineTo(x, height - bottom);
+            context.stroke();
+            context.setLineDash([]);
+            context.font = '11px system-ui';
+            const labels = entries.map(({ item, point }) => { const speed = 3600 / point.seconds, vam = point.grade === 0 ? 0 : Math.round(36000 * Math.abs(point.grade) / point.seconds); return `${item.curve.name.slice(0, 24)} · ${point.grade}% · ${speed.toFixed(1)} km/h · ${paceText(point.seconds)}/km · ${vam} m/h`; }), boxWidth = Math.min(width - left - right, Math.max(...labels.map(label => context.measureText(label).width)) + 14), boxHeight = labels.length * 17 + 10, boxX = Math.min(width - right - boxWidth, Math.max(left, x + 8)), boxY = top + 6;
+            context.fillStyle = 'rgba(17,24,39,.92)';
+            context.fillRect(boxX, boxY, boxWidth, boxHeight);
+            labels.forEach((label, index) => { context.fillStyle = entries[index].item.color; context.fillRect(boxX + 6, boxY + 8 + index * 17, 5, 5); context.fillStyle = '#fff'; context.fillText(label, boxX + 16, boxY + 14 + index * 17); });
+        }
+    }
 }
 const redrawHorizontalVamGuides = () => { drawPaceComparison(); drawSpeedComparison(); renderPaceComparisonControls(); };
 showVamGuides.addEventListener('change', redrawHorizontalVamGuides);
@@ -546,7 +587,7 @@ paceCurveName.onchange = () => {
     paceLibraryStatus.textContent = `Saved as ${name}.`;
 };
 newPaceCurve.onclick = () => {
-    const curve: SavedPaceCurve = { id: createPaceCurveId(), name: uniquePaceCurveName('New pace curve'), points: cloneDefaultPaceCurve() };
+    const template = builtInPaceCurves.find(curve => curve.key === builtInPaceSelect.value) ?? builtInPaceCurves[0], curve: SavedPaceCurve = { id: createPaceCurveId(), name: uniquePaceCurveName('New pace curve'), points: cloneBuiltInPaceCurve(template) };
     paceCurves.push(curve);
     paceChartPreferences.curveIds.push(curve.id);
     savePaceChartPreferences();
@@ -558,7 +599,7 @@ newPaceCurve.onclick = () => {
     redrawHorizontalVamGuides();
     paceCurveName.focus();
     paceCurveName.select();
-    paceLibraryStatus.textContent = 'New curve created from the default values.';
+    paceLibraryStatus.textContent = `New curve created from the ${template.name} built-in values.`;
 };
 duplicatePaceCurve.onclick = () => {
     const source = activePaceCurve(), curve: SavedPaceCurve = { id: createPaceCurveId(), name: uniquePaceCurveName(`${source.name} copy`), points: source.points.map(point => ({ ...point })) };
@@ -640,7 +681,7 @@ importPaceCurves.onchange = async () => {
         importPaceCurves.value = '';
     }
 };
-loadDefaultPace.onclick = () => { pacePoints = cloneDefaultPaceCurve(); savePace(); renderPace(); redrawHorizontalVamGuides(); paceLibraryStatus.textContent = `Loaded the default values into ${activePaceCurve().name}.`; };
+loadBuiltInPace.onclick = () => { const template = builtInPaceCurves.find(curve => curve.key === builtInPaceSelect.value) ?? builtInPaceCurves[0]; pacePoints = cloneBuiltInPaceCurve(template); savePace(); renderPace(); redrawHorizontalVamGuides(); paceLibraryStatus.textContent = `Loaded the ${template.name} built-in values into ${activePaceCurve().name}.`; };
 syncPaceCurveControls();
 savePace();
 const viewStartInput = $('#view-start') as HTMLInputElement, viewEndInput = $('#view-end') as HTMLInputElement;
@@ -710,7 +751,35 @@ criteria.querySelectorAll('ul')[1].insertAdjacentHTML('beforeend', '<li><b>Why a
 const settingsControls = $('.controls');
 settingsControls.classList.add('settings-groups');
 const settingsGroup = (title: string, ...items: Element[]) => { const group = document.createElement('fieldset'); group.className = 'settings-group'; group.innerHTML = `<legend>${title}</legend>`; items.forEach(item => group.append(item)); return group; }, routeFile = $f.closest('label')!, gradeControl = $('#grade').closest('label')!, windowControl = $('#window').closest('label')!, minimumControl = $('#min').closest('label')!, bridgeControl = $('#bridge').closest('label')!;
-settingsControls.replaceChildren(settingsGroup('Route and activity', routeFile, activityControl, pauseControl, restDetectionControl, movingSpeedControl), settingsGroup('Terrain classification', gradeControl, windowControl, minimumControl, smoothingControl), settingsGroup('Joining interruptions', bridgeControl, counterControl, counterLengthControl, counterReversalControl));
+const exampleRoutes: Record<string, { name: string; path: string }> = {
+    'bob-graham-lukes-version': { name: 'Bob Graham — Luke’s Version', path: 'examples/bob-graham-lukes-version.gpx' },
+};
+const exampleRouteControl = document.createElement('div');
+exampleRouteControl.className = 'example-route-control';
+exampleRouteControl.innerHTML = '<label>Example route<select id="example-route"><option value="">Choose an example…</option><option value="bob-graham-lukes-version">Bob Graham — Luke’s Version</option></select></label><button id="load-example-route" type="button" disabled>Load example</button><small>Bundled with the app, including its elevation profile and named waypoints.</small>';
+const exampleRouteSelect = exampleRouteControl.querySelector('select')!, exampleRouteButton = exampleRouteControl.querySelector('button')!;
+exampleRouteSelect.onchange = () => exampleRouteButton.disabled = !exampleRouteSelect.value;
+exampleRouteButton.onclick = async () => {
+    const example = exampleRoutes[exampleRouteSelect.value];
+    if (!example)
+        return;
+    exampleRouteButton.disabled = true;
+    status.textContent = `Loading ${example.name}…`;
+    try {
+        const response = await fetch(new URL(example.path, document.baseURI));
+        if (!response.ok)
+            throw Error(`The example route could not be loaded (${response.status}).`);
+        $f.value = '';
+        loadRouteText(await response.text(), example.name);
+    }
+    catch (problem) {
+        error.textContent = problem instanceof Error ? problem.message : 'The example route could not be loaded.';
+    }
+    finally {
+        exampleRouteButton.disabled = false;
+    }
+};
+settingsControls.replaceChildren(settingsGroup('Route', routeFile, exampleRouteControl), settingsGroup('Recorded activity', activityControl, pauseControl, restDetectionControl, movingSpeedControl), settingsGroup('Terrain classification', gradeControl, windowControl, minimumControl, smoothingControl), settingsGroup('Joining interruptions', bridgeControl, counterControl, counterLengthControl, counterReversalControl));
 type ParsedRoute = { points: P[]; waypoints: W[]; warnings: string[] };
 const childText = (element: Element, name: string) => [...element.children].find(child => child.localName === name)?.textContent;
 const parsePoint = (element: Element) => {
@@ -761,15 +830,30 @@ function setParsedRoute(parsed: ParsedRoute) {
     routeWaypoints = [];
     renderWaypoints();
 }
-$f.onchange = async () => { const f = $f.files?.[0]; if (!f)
-    return; error.textContent = ''; fill.hidden = true; result.hidden = true; activity = []; activityMatchQuality = null; paceEstimate = null; routePrediction = null; activityFile.value = ''; activityPanel.hidden = true; try {
-    setParsedRoute(parse(await f.text()));
+function loadRouteText(text: string, name: string) {
+    error.textContent = '';
+    fill.hidden = true;
+    result.hidden = true;
+    activity = [];
+    activityMatchQuality = null;
+    paceEstimate = null;
+    routePrediction = null;
+    activityFile.value = '';
+    activityPanel.hidden = true;
+    routeName = name;
+    setParsedRoute(parse(text));
     if (p.every(x => x.ele !== null))
         analyse();
     else {
-        status.textContent = `${p.length.toLocaleString()} points found, but no complete elevation profile.${routeWarnings.length ? ` ${routeWarnings.join(' ')}` : ''}`;
+        status.textContent = `${routeName}: ${p.length.toLocaleString()} points found, but no complete elevation profile.${routeWarnings.length ? ` ${routeWarnings.join(' ')}` : ''}`;
         fill.hidden = false;
     }
+}
+$f.onchange = async () => { const f = $f.files?.[0]; if (!f)
+    return; try {
+    exampleRouteSelect.value = '';
+    exampleRouteButton.disabled = true;
+    loadRouteText(await f.text(), f.name);
 }
 catch (e) {
     error.textContent = e instanceof Error ? e.message : 'Could not read GPX.';
@@ -1265,7 +1349,7 @@ function gradientSubsections(parent: M, e: number[], threshold: number, minimum:
     else
         all.push(section); return all; }, []);
 }
-function render(e: number[]) { profile = e; hovered = null; hoverDistance = null; result.hidden = false; status.textContent = `${p.length.toLocaleString()} points analysed across ${fmt(p.at(-1)!.d)}.${routeWarnings.length ? ` ${routeWarnings.join(' ')}` : ''}`; const ds: Record<K, number> = { climb: 0, descent: 0, flat: 0, rolling: 0 }; ss.forEach(s => ds[s.k] += len(s)); $('#stats').innerHTML = ([...Object.entries(ds), ['climb', `+${Math.round(tot.up)} m`], ['descent', `−${Math.round(tot.down)} m`]] as [
+function render(e: number[]) { profile = e; hovered = null; hoverDistance = null; result.hidden = false; status.textContent = `${routeName ? `${routeName}: ` : ''}${p.length.toLocaleString()} points analysed across ${fmt(p.at(-1)!.d)}.${routeWarnings.length ? ` ${routeWarnings.join(' ')}` : ''}`; const ds: Record<K, number> = { climb: 0, descent: 0, flat: 0, rolling: 0 }; ss.forEach(s => ds[s.k] += len(s)); $('#stats').innerHTML = ([...Object.entries(ds), ['climb', `+${Math.round(tot.up)} m`], ['descent', `−${Math.round(tot.down)} m`]] as [
     K,
     string | number
 ][]).map(([k, x], i) => `<article class="stat ${k}"><b>${typeof x === 'number' ? fmt(x) : x}</b><span>${i < 4 ? k[0].toUpperCase() + k.slice(1) : i === 4 ? 'Total ascent' : 'Total descent'}</span></article>`).join(''); const table = $('#rows').closest('table')!; table.querySelector('thead')!.innerHTML = '<tr><th>#</th><th>Type</th><th>From</th><th>To</th><th>Distance</th><th>Elevation change</th><th>Average grade</th></tr>'; const row = (s: S, number: string, child = false, primary = 0) => { const a = p[s.a], b = p[s.b], d = b.d - a.d, z = b.ele! - a.ele!, grade = d > 0 ? `${(z / d * 100).toFixed(1)}%` : '—'; return `<tr class="${child ? 'sub-row' : ''}" data-primary="${primary}"><td>${number}</td><td class="${s.k}">${child ? '↳ ' : ''}${s.label ?? s.k}</td><td>${fmt(a.d)}</td><td>${fmt(b.d)}</td><td>${fmt(d)}</td><td>${z >= 0 ? '+' : ''}${Math.round(z)} m</td><td>${grade}</td></tr>`; }; $('#rows').innerHTML = ms.map((m, i) => { const top: S = { k: m.k, a: m.a, b: m.b }; return row(top, String(i + 1), false, i) + (m.k === 'climb' || m.k === 'descent' ? m.c.map(s => row(s, '', true, i)).join('') : ''); }).join(''); draw(e); }
