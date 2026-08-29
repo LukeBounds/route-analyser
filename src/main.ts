@@ -26,6 +26,7 @@ import {
     type RoutePacePrediction,
 } from './pace';
 import { createPaceLibraryState, parsePaceLibraryStorage } from './paceLibrary';
+import { pacePageTemplate, routePageTemplate } from './templates';
 import { analyseTerrain, localGradeAtDistance } from './terrain';
 import type {
     PrimaryTerrainSection as M,
@@ -33,6 +34,16 @@ import type {
     TerrainSection as S,
 } from './terrain';
 import { waypointSegmentGeometry } from './waypoints';
+import {
+    createTerrainRows,
+    createRouteViewModel,
+    createWaypointSegmentRows,
+    type ActivityComparisonViewModel,
+    type ActivityViewAccessor,
+    type PaceMetricsViewModel,
+    type TerrainRowViewModel,
+    type WaypointSegmentsViewModel,
+} from './viewModels';
 let paceEstimate: {
     total: number;
     sections: number[];
@@ -77,7 +88,10 @@ function routeWaypointGeometry(start: RouteWaypoint, end: RouteWaypoint) {
         { index: end.index, elevation: end.waypoint.ele },
     );
 }
-A.innerHTML = `<main><header><p class="eyebrow">Route Analyser</p><h1>Terrain analyser</h1><p>Break GPX routes into useful climb, descent, flat, and rolling sections.</p></header><section class="panel"><h2>Route and settings</h2><div class="controls"><label>GPX route<input id="file" type="file" accept=".gpx,application/gpx+xml"></label><label>Grade threshold <output id="gradeOut">2%</output><input id="grade" type="range" min="1" max="12" step=".5" value="2"></label><label>Rolling window <output id="windowOut">500 m</output><input id="window" type="range" min="200" max="1500" step="50" value="500"></label><label>Minimum section <output id="minOut">150 m</output><input id="min" type="range" min="25" max="1000" step="25" value="150"></label><label>Flat/rolling bridge <output id="bridgeOut">300 m</output><input id="bridge" type="range" min="0" max="1500" step="25" value="300"></label></div><details><summary>How settings work</summary><ul><li><b>Grade threshold</b> is the sustained gradient classified as climbing or descending.</li><li><b>Rolling window</b> smooths the profile and sets the maximum span for a rolling section with internal uphill and downhill movements.</li><li><b>Minimum section</b> merges small fragments into their adjacent section.</li><li><b>Flat/rolling bridge</b> optionally joins same-direction climbs/descents across a short flat or rolling interruption that is also small compared with both adjacent sections.</li><li><b>Total ascent and descent</b> use the original terrain profile so small route undulations are retained.</li></ul></details><p id="status">Choose a GPX file to begin.</p><p id="error" role="alert"></p><div id="fill" hidden><p>This GPX has no complete elevation profile. Fill it with full-detail Mapterhorn terrain tiles; only tiles crossed by the route are requested. <a href="https://mapterhorn.com/attribution/" target="_blank" rel="noreferrer">Attribution</a>.</p><button id="fillBtn">Fill terrain elevation</button></div></section><section id="result" hidden><div class="result-head"><div><p class="eyebrow">Analysis</p><h2>Route breakdown</h2></div><button id="csv">Download sections CSV</button></div><div id="stats"></div><div id="plot-range"><label>View from <input id="view-start" type="number" min="0" step="0.01"> km</label><label>to <input id="view-end" type="number" min="0" step="0.01"> km</label><button id="view-full" type="button">Full route</button><span>Click a table row to focus its primary section.</span></div><div class="legend"><span class="climb">● Climb</span><span class="descent">● Descent</span><span class="flat">● Flat</span><span class="rolling">● Rolling</span></div><canvas id="chart" aria-label="Terrain colour coded elevation profile"></canvas><div class="table"><table><thead><tr><th>#</th><th>Type</th><th>From</th><th>To</th><th>Distance</th><th>Elevation change</th><th>Average grade</th></tr></thead><tbody id="rows"></tbody></table></div></section></main>`;
+function hasTerrainChildren(section: M) {
+    return (section.k === 'climb' || section.k === 'descent') && section.c.length > 0;
+}
+A.innerHTML = routePageTemplate();
 const $ = <T extends Element>(x: string) => document.querySelector<T>(x)!, $f = $('#file') as HTMLInputElement, status = $('#status'), error = $('#error'), fill = $('#fill') as HTMLElement, result = $('#result') as HTMLElement, chart = $('#chart') as HTMLCanvasElement;
 status.textContent = 'Choose a GPX file or load an example route to begin.';
 const waypointPanel = document.createElement('section');
@@ -140,12 +154,8 @@ resultActions.className = 'result-actions';
 resultActions.append(result.querySelector('#csv')!, analysisCurveControl, paceAnalysisButton, subsectionToggleButton);
 result.querySelector('.result-head')!.append(resultActions);
 paceAnalysisButton.onclick = () => runPaceAnalysis();
-subsectionToggleButton.onclick = () => { const hasCollapsed = ms.some((section, index) => section.c.length && collapsedPrimary.has(index)); ms.forEach((section, index) => section.c.length && (hasCollapsed ? collapsedPrimary.delete(index) : collapsedPrimary.add(index))); decorateTerrainTable(); syncSubsectionToggle(); };
-const paceOnly = location.hash === '#pace', header = A.querySelector('header')!, pageNav = document.createElement('nav');
-pageNav.className = 'page-nav';
-pageNav.innerHTML = '<a href="./">Terrain analyser</a><a href="./#pace">Pace curve</a>';
-header.prepend(pageNav);
-window.addEventListener('hashchange', () => location.reload());
+subsectionToggleButton.onclick = () => { const hasCollapsed = ms.some((section, index) => hasTerrainChildren(section) && collapsedPrimary.has(index)); ms.forEach((section, index) => hasTerrainChildren(section) && (hasCollapsed ? collapsedPrimary.delete(index) : collapsedPrimary.add(index))); renderTerrainTable(); syncSubsectionToggle(); };
+const header = A.querySelector('header')!, routePage = A.querySelector<HTMLElement>('#route-page')!;
 type PacePoint = PaceCurvePoint;
 type SavedPaceCurve = StoredPaceCurve;
 const paceLibraryStorage = 'route-analyser.pace-curves', selectedPaceCurveStorage = 'route-analyser.selected-pace-curve', createPaceCurveId = () => typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `curve-${Date.now()}-${Math.random().toString(36).slice(2)}`, cloneBuiltInPaceCurve = (curve: BuiltInPaceCurve = builtInPaceCurves[0]) => curve.points.map(point => ({ ...point })), createBuiltInPaceLibrary = (): SavedPaceCurve[] => builtInPaceCurves.map(curve => ({ id: createPaceCurveId(), name: curve.name, points: cloneBuiltInPaceCurve(curve) })), loadPaceLibrary = () => {
@@ -187,52 +197,14 @@ const paceChartPreferencesStorage = 'route-analyser.pace-chart-preferences', loa
     }
 };
 let paceChartPreferences = loadPaceChartPreferences();
-const pacePanel = document.createElement('section');
-pacePanel.className = 'panel';
-pacePanel.id = 'pace-panel';
-pacePanel.innerHTML = `<h2>Your pace curves</h2><p>Create named curves for different effort levels or conditions. New browsers start with the built-in curves; curves and edits are stored only in this browser.</p><div class="curve-library"><label>Saved curve<select id="pace-curve-select"></select></label><label>Curve name<input id="pace-curve-name" type="text" maxlength="80"></label><div class="curve-library-actions"><button id="new-pace-curve" type="button">New curve</button><button id="duplicate-pace-curve" type="button">Duplicate</button><button id="delete-pace-curve" type="button">Delete</button><button id="export-pace-curves" type="button">Export all</button><label class="file-button">Import backup<input id="import-pace-curves" type="file" accept=".json,application/json"></label></div><p id="pace-library-status" role="status"></p></div><fieldset class="curve-comparison"><legend>Chart comparison</legend><p>Select the saved curves to plot together.</p><div id="curve-comparison-list"></div><div class="chart-series-controls"><label><input id="show-pace-curves" type="checkbox" checked> Pace chart</label><label><input id="show-speed-curves" type="checkbox" checked> Speed chart</label><label><input id="show-vam-curves" type="checkbox"> VAM overlays</label></div><div id="curve-chart-legend"></div></fieldset><div id="pace-editor"><div class="pace-editor-toolbar"><div class="pace-editor-action"><strong>Edit grade points</strong><span>Add another gradient to the selected curve.</span><button id="add-pace-point" type="button">＋ Add grade point</button></div><div class="pace-editor-action built-in-loader"><strong>Load built-in values</strong><span>Replace the selected curve’s points with a built-in curve.</span><label>Built-in curve<select id="built-in-pace-select">${builtInPaceCurves.map(curve => `<option value="${escapeHtml(curve.key)}">${escapeHtml(curve.name)}</option>`).join('')}</select></label><button id="load-built-in-pace" type="button">Load values</button></div></div><table><thead><tr><th>Grade</th><th>Pace</th><th></th></tr></thead><tbody></tbody></table></div><h3 id="pace-chart-heading">Pace comparison</h3><canvas id="pace-chart" aria-label="Pace curve comparison"></canvas><p id="pace-note">Pace is in minutes per kilometre, for example 6:30.</p></section>`;
-const pacePanelIntroduction = pacePanel.querySelector('h2')!.nextElementSibling!;
-pacePanelIntroduction.append(' Export your curve library for safe storage, then import the backup to restore it if your browser data is cleared.');
-const paceEditor = pacePanel.querySelector('#pace-editor')!, paceCurveControl = pacePanel.querySelector('#pace-curve-select')!.closest('label')!, paceCurveNameControl = pacePanel.querySelector('#pace-curve-name')!.closest('label')!;
-paceCurveControl.firstChild!.textContent = 'Curve to edit';
-paceCurveNameControl.className = 'pace-editor-name';
-const curveDataHeading = document.createElement('h3'), editGradePoints = paceEditor.querySelector('.pace-editor-action')!;
-curveDataHeading.className = 'curve-data-heading';
-curveDataHeading.textContent = 'Curve data';
-editGradePoints.querySelector('strong')!.textContent = 'Grade points';
-paceEditor.prepend(paceCurveNameControl, curveDataHeading);
-paceEditor.append(paceEditor.querySelector('.pace-editor-toolbar')!);
-result.before(pacePanel);
+A.querySelector('main')!.insertAdjacentHTML('beforeend', pacePageTemplate(builtInPaceCurves));
+const pacePanel = A.querySelector<HTMLElement>('#pace-panel')!;
 const paceRows = pacePanel.querySelector('tbody')!, paceCanvas = pacePanel.querySelector('canvas')!, paceHeading = pacePanel.querySelector<HTMLElement>('#pace-chart-heading')!, addPace = pacePanel.querySelector<HTMLButtonElement>('#add-pace-point')!, loadBuiltInPace = pacePanel.querySelector<HTMLButtonElement>('#load-built-in-pace')!, builtInPaceSelect = pacePanel.querySelector<HTMLSelectElement>('#built-in-pace-select')!, paceCurveSelect = pacePanel.querySelector<HTMLSelectElement>('#pace-curve-select')!, paceCurveName = pacePanel.querySelector<HTMLInputElement>('#pace-curve-name')!, newPaceCurve = pacePanel.querySelector<HTMLButtonElement>('#new-pace-curve')!, duplicatePaceCurve = pacePanel.querySelector<HTMLButtonElement>('#duplicate-pace-curve')!, deletePaceCurve = pacePanel.querySelector<HTMLButtonElement>('#delete-pace-curve')!, exportPaceCurves = pacePanel.querySelector<HTMLButtonElement>('#export-pace-curves')!, importPaceCurves = pacePanel.querySelector<HTMLInputElement>('#import-pace-curves')!, paceLibraryStatus = pacePanel.querySelector<HTMLElement>('#pace-library-status')!, comparisonList = pacePanel.querySelector<HTMLElement>('#curve-comparison-list')!, chartLegend = pacePanel.querySelector<HTMLElement>('#curve-chart-legend')!, showPaceCurves = pacePanel.querySelector<HTMLInputElement>('#show-pace-curves')!, showSpeedCurves = pacePanel.querySelector<HTMLInputElement>('#show-speed-curves')!, showVamCurves = pacePanel.querySelector<HTMLInputElement>('#show-vam-curves')!, analysisCurveSelect = analysisCurveControl.querySelector<HTMLSelectElement>('select')!;
-const speedHeading = document.createElement('h3');
-speedHeading.textContent = 'Speed comparison';
-const speedCanvas = document.createElement('canvas');
-speedCanvas.id = 'speed-chart';
-speedCanvas.setAttribute('aria-label', 'Personal speed curve');
-const vamGuides = document.createElement('label');
-vamGuides.className = 'vam-guides';
-vamGuides.innerHTML = '<input type="checkbox"> Show VAM gridlines';
-pacePanel.append(speedHeading, speedCanvas, vamGuides);
-const comparisonControl = pacePanel.querySelector('.curve-comparison')!, curveLibrary = pacePanel.querySelector('.curve-library')!, paceNote = pacePanel.querySelector('#pace-note')!, viewCurvesSection = document.createElement('section'), editCurvesSection = document.createElement('section');
-viewCurvesSection.className = editCurvesSection.className = 'pace-workspace-section';
-viewCurvesSection.innerHTML = '<div class="pace-section-header"><h3>View and compare</h3><p>Choose the curves and measurements shown on the comparison charts.</p></div>';
-editCurvesSection.innerHTML = '<div class="pace-section-header"><h3>Manage curves</h3><p>Create new curves and edit existing curves.</p></div>';
-viewCurvesSection.append(comparisonControl, paceHeading, paceCanvas, paceNote, speedHeading, speedCanvas, vamGuides);
-editCurvesSection.append(curveLibrary, paceEditor);
-pacePanelIntroduction.after(viewCurvesSection, editCurvesSection);
+const speedCanvas = pacePanel.querySelector<HTMLCanvasElement>('#speed-chart')!, speedHeading = pacePanel.querySelector<HTMLElement>('#speed-chart-heading')!, vamGuides = pacePanel.querySelector<HTMLLabelElement>('.vam-guides')!;
 const showVamGuides = vamGuides.querySelector('input')!;
 showPaceCurves.checked = paceChartPreferences.showPace;
 showSpeedCurves.checked = paceChartPreferences.showSpeed;
 showVamCurves.checked = paceChartPreferences.showVam;
-pacePanel.hidden = !paceOnly;
-if (paceOnly) {
-    header.querySelector('h1')!.textContent = 'Pace curve';
-    header.querySelector('p:last-child')!.textContent = 'Build and save your personal pace and VAM curve.';
-    (A.querySelector('main > .panel') as HTMLElement)!.hidden = true;
-    result.hidden = true;
-}
-pacePanel.querySelector('thead tr')!.innerHTML = '<th>Grade</th><th>Method</th><th>Pace / VAM</th><th></th>';
-pacePanel.querySelector('#pace-note')!.textContent = 'Pace is min/km. VAM is vertical metres per hour.';
 const paceMode = pacePointMethod, paceInput = pacePointInput, paceValue = (point: PacePoint) => isSemanticallyValidPacePoint(point) ? pacePointSeconds(point) : null, paceText = formatPace;
 const savePace = () => { const curve = activePaceCurve(); curve.points = pacePoints; try {
     localStorage.setItem(paceLibraryStorage, JSON.stringify(createPaceLibraryState(paceCurves, activePaceCurveId)));
@@ -246,7 +218,7 @@ catch {
 function renderPace() {
     paceRows.innerHTML = pacePoints.map((point, index) => {
         const mode = paceMode(point), equivalent = paceValue(point), vam = equivalent !== null && point.grade !== 0 ? Math.round(36000 * Math.abs(point.grade) / equivalent) : null, equivalentText = equivalent === null ? '' : mode === 'vam' ? `≈ ${paceText(equivalent)}/km` : vam === null ? '' : `≈ ${vam} m/h`;
-        return `<tr><td><input data-grade="${index}" type="number" min="-100" max="100" step=".5" value="${point.grade}">%</td><td><select data-mode="${index}"><option value="pace" ${mode === 'pace' ? 'selected' : ''}>Pace</option><option value="vam" ${mode === 'vam' ? 'selected' : ''}>VAM</option></select></td><td><input data-pace="${index}" type="text" inputmode="numeric" placeholder="${mode === 'vam' ? '600' : '6:30'}" value="${escapeHtml(paceInput(point))}"> ${mode === 'vam' ? 'm/h' : ''}${equivalentText ? ` <small>${equivalentText}</small>` : ''}</td><td><button data-remove="${index}" type="button" aria-label="Remove pace point">×</button></td></tr>`;
+        return `<tr><td><input data-grade="${index}" type="number" min="-100" max="100" step=".5" value="${point.grade}">%</td><td><select data-mode="${index}"><option value="pace" ${mode === 'pace' ? 'selected' : ''}>Pace</option><option value="vam" ${mode === 'vam' ? 'selected' : ''}>VAM</option></select></td><td><input data-pace="${index}" type="text" inputmode="numeric" placeholder="${mode === 'vam' ? '600' : '6:30'}" value="${escapeHtml(paceInput(point))}"> ${mode === 'vam' ? 'm/h' : ''} <small data-equivalent="${index}">${equivalentText}</small></td><td><button data-remove="${index}" type="button" aria-label="Remove pace point">×</button></td></tr>`;
     }).join('');
 }
 paceRows.addEventListener('input', event => { const input = event.target as HTMLInputElement, index = Number(input.dataset.grade ?? input.dataset.pace); if (input.dataset.grade !== undefined)
@@ -280,10 +252,8 @@ speedCanvas.addEventListener('pointermove', event => { const grade = findHovered
     return; hoveredSpeedGrade = grade; redrawHorizontalVamGuides(); });
 speedCanvas.addEventListener('pointerleave', () => { if (hoveredSpeedGrade === null)
     return; hoveredSpeedGrade = null; redrawHorizontalVamGuides(); });
-function updatePaceEquivalents() { paceRows.querySelectorAll<HTMLTableRowElement>('tr').forEach((row, index) => { const cell = row.cells[2], seconds = paceValue(pacePoints[index]), mode = paceMode(pacePoints[index]), vam = seconds !== null && pacePoints[index].grade !== 0 ? Math.round(36000 * Math.abs(pacePoints[index].grade) / seconds) : null; let output = cell.querySelector('small'); if (!output) {
-    output = document.createElement('small');
-    cell.append(' ', output);
-} output.textContent = seconds === null ? '' : mode === 'vam' ? `≈ ${paceText(seconds)}/km` : vam === null ? '' : `≈ ${vam} m/h`; }); }
+function updatePaceEquivalents() { pacePoints.forEach((point, index) => { const output = paceRows.querySelector<HTMLElement>(`[data-equivalent="${index}"]`); if (!output)
+    return; const seconds = paceValue(point), mode = paceMode(point), vam = seconds !== null && point.grade !== 0 ? Math.round(36000 * Math.abs(point.grade) / seconds) : null; output.textContent = seconds === null ? '' : mode === 'vam' ? `≈ ${paceText(seconds)}/km` : vam === null ? '' : `≈ ${vam} m/h`; }); }
 updatePaceEquivalents();
 const sortPacePoints = () => { pacePoints.sort((a, b) => a.grade - b.grade); savePace(); renderPace(); redrawHorizontalVamGuides(); };
 paceRows.addEventListener('change', sortPacePoints);
@@ -521,6 +491,25 @@ showPaceCurves.onchange = updateChartSeries;
 showSpeedCurves.onchange = updateChartSeries;
 showVamCurves.onchange = updateChartSeries;
 redrawHorizontalVamGuides();
+function syncWorkspace() {
+    const showPacePage = location.hash === '#pace';
+    routePage.hidden = showPacePage;
+    pacePanel.hidden = !showPacePage;
+    header.querySelector('h1')!.textContent = showPacePage ? 'Pace curve' : 'Terrain analyser';
+    header.querySelector('p:last-child')!.textContent = showPacePage
+        ? 'Build and save your personal pace and VAM curve.'
+        : 'Break GPX routes into useful climb, descent, flat, and rolling sections.';
+    header.querySelectorAll<HTMLAnchorElement>('[data-page-link]').forEach(link => {
+        const active = link.dataset.pageLink === (showPacePage ? 'pace' : 'route');
+        if (active)
+            link.setAttribute('aria-current', 'page');
+        else
+            link.removeAttribute('aria-current');
+    });
+    requestAnimationFrame(() => showPacePage ? redrawHorizontalVamGuides() : profile.length && draw(profile));
+}
+window.addEventListener('hashchange', syncWorkspace);
+syncWorkspace();
 const uniquePaceCurveName = (requested: string, ignoreId?: string) => {
     const base = requested.trim() || 'Pace curve', names = new Set(paceCurves.filter(curve => curve.id !== ignoreId).map(curve => curve.name.toLocaleLowerCase()));
     if (!names.has(base.toLocaleLowerCase()))
@@ -923,7 +912,6 @@ function locate(d: number) { let a = 0, b = p.length - 1; while (a < b) {
     const m = (a + b) >> 1;
     p[m].d < d ? a = m + 1 : b = m;
 } return a; }
-function len(section: S) { return p[section.b].d - p[section.a].d; }
 function analyse() {
     const analysis = analyseTerrain(p, {
         gradeThreshold: val('#grade'),
@@ -942,12 +930,10 @@ function analyse() {
     paceEstimate = null;
     routePrediction = null;
     collapsedPrimary.clear();
-    ms.forEach((section, index) => section.c.length && collapsedPrimary.add(index));
+    ms.forEach((section, index) => hasTerrainChildren(section) && collapsedPrimary.add(index));
     predictionPanel.hidden = true;
     activityPanel.hidden = true;
     render(profile);
-    addSummaryGradients();
-    decorateTerrainTable();
     syncSubsectionToggle();
     routeWaypoints.sort((a, b) => a.index - b.index);
     renderWaypointSegments();
@@ -1081,7 +1067,17 @@ function renderActivityAnalysis() { if (!activity.length) {
     expected: number;
     actual: number;
 }>(); ms.forEach(section => { const comparison = activityComparison(p[section.a].d, p[section.b].d); if (!comparison)
-    return; const value = byKind.get(section.k) ?? { expected: 0, actual: 0 }; value.expected += comparison.expected; value.actual += comparison.actual; byKind.set(section.k, value); }); const guidance = [...byKind.entries()].filter(([, value]) => value.expected > 60).map(([kind, value]) => { const difference = (value.actual / value.expected - 1) * 100; return `<li><b>${kind[0].toUpperCase() + kind.slice(1)}:</b> ${Math.abs(difference).toFixed(0)}% ${difference > 0 ? 'slower' : 'faster'} than the selected curve.</li>`; }).join('') || '<li>Not enough route coverage for section-level calibration.</li>', coverage = (end - start) / (p.at(-1)!.d) * 100, quality = activityMatchQuality ? `${Math.round(activityMatchQuality.within150m)}% of samples within 150 m; median ${Math.round(activityMatchQuality.medianError)} m and 90th percentile ${Math.round(activityMatchQuality.p90Error)} m.` : 'Match quality unavailable.', curveName = escapeHtml(activePaceCurve().name); activityPanel.innerHTML = `<div class="prediction-head"><div><p class="eyebrow">Activity versus ${curveName}</p><h2>${signedDuration(total.delta)}</h2></div><p>${durationText(total.actual)} moving versus ${durationText(total.expected)} predicted across ${coverage.toFixed(0)}% of the route. Positive means slower than predicted.</p></div><div class="activity-stats"><article><b>${durationText((activity.at(-1)!.time - activity[0].time) / 1000)}</b><span>Elapsed time</span></article><article><b>${durationText(total.actual)}</b><span>Moving time</span></article><article><b>${durationText(total.expected)}</b><span>Predicted time · ${curveName}</span></article><article><b>${paceText(total.actual / ((end - start) / 1000))}/km</b><span>Actual average pace</span></article></div><p class="match-quality"><b>Route match:</b> ${quality}</p><button type="button" id="activity-csv">Download activity comparison CSV</button><canvas id="activity-chart" aria-label="Actual and predicted cumulative moving time"></canvas><h3>Actual pace against the curve</h3><canvas id="activity-gradient-chart" aria-label="Actual pace samples against the pace curve"></canvas><details class="calibration" open><summary>Calibration indications</summary><p>These observations describe this activity; keep effort level and terrain context in mind before changing a curve.</p><ul>${guidance}</ul></details>`; activityPanel.querySelector<HTMLButtonElement>('#activity-csv')!.onclick = downloadActivityCsv; applyActivityColumns(); applySubsectionPaceColumns(); drawActivityComparison(); drawActivityGradient(); }
+    return; const value = byKind.get(section.k) ?? { expected: 0, actual: 0 }; value.expected += comparison.expected; value.actual += comparison.actual; byKind.set(section.k, value); }); const viewModel: ActivityComparisonViewModel = {
+        curveName: activePaceCurve().name,
+        expectedSeconds: total.expected,
+        actualSeconds: total.actual,
+        differenceSeconds: total.delta,
+        elapsedSeconds: (activity.at(-1)!.time - activity[0].time) / 1000,
+        distance: end - start,
+        coveragePercent: (end - start) / (p.at(-1)!.d) * 100,
+        qualityText: activityMatchQuality ? `${Math.round(activityMatchQuality.within150m)}% of samples within 150 m; median ${Math.round(activityMatchQuality.medianError)} m and 90th percentile ${Math.round(activityMatchQuality.p90Error)} m.` : 'Match quality unavailable.',
+        guidanceHtml: [...byKind.entries()].filter(([, value]) => value.expected > 60).map(([kind, value]) => { const difference = (value.actual / value.expected - 1) * 100; return `<li><b>${kind[0].toUpperCase() + kind.slice(1)}:</b> ${Math.abs(difference).toFixed(0)}% ${difference > 0 ? 'slower' : 'faster'} than the selected curve.</li>`; }).join('') || '<li>Not enough route coverage for section-level calibration.</li>',
+    }, curveName = escapeHtml(viewModel.curveName); activityPanel.innerHTML = `<div class="prediction-head"><div><p class="eyebrow">Activity versus ${curveName}</p><h2>${signedDuration(viewModel.differenceSeconds)}</h2></div><p>${durationText(viewModel.actualSeconds)} moving versus ${durationText(viewModel.expectedSeconds)} predicted across ${viewModel.coveragePercent.toFixed(0)}% of the route. Positive means slower than predicted.</p></div><div class="activity-stats"><article><b>${durationText(viewModel.elapsedSeconds)}</b><span>Elapsed time</span></article><article><b>${durationText(viewModel.actualSeconds)}</b><span>Moving time</span></article><article><b>${durationText(viewModel.expectedSeconds)}</b><span>Predicted time · ${curveName}</span></article><article><b>${paceText(viewModel.actualSeconds / (viewModel.distance / 1000))}/km</b><span>Actual average pace</span></article></div><p class="match-quality"><b>Route match:</b> ${viewModel.qualityText}</p><button type="button" id="activity-csv">Download activity comparison CSV</button><canvas id="activity-chart" aria-label="Actual and predicted cumulative moving time"></canvas><h3>Actual pace against the curve</h3><canvas id="activity-gradient-chart" aria-label="Actual pace samples against the pace curve"></canvas><details class="calibration" open><summary>Calibration indications</summary><p>These observations describe this activity; keep effort level and terrain context in mind before changing a curve.</p><ul>${viewModel.guidanceHtml}</ul></details>`; activityPanel.querySelector<HTMLButtonElement>('#activity-csv')!.onclick = downloadActivityCsv; renderTerrainTable(); renderWaypointSegments(); drawActivityComparison(); drawActivityGradient(); }
 activityFile.onchange = async () => { const file = activityFile.files?.[0]; if (!file)
     return; error.textContent = ''; try {
     const text = await file.text(), recorded = parseActivity(text), useAsRoute = !p.length || !profile.length;
@@ -1108,6 +1104,10 @@ catch (problem) {
     activity = [];
     activityMatchQuality = null;
     activityPanel.hidden = true;
+    if (ms.length) {
+        renderTerrainTable();
+        renderWaypointSegments();
+    }
     error.textContent = problem instanceof Error ? problem.message : 'Could not analyse this activity GPX.';
 } };
 const refreshActivity = () => { if (activityFile.files?.[0])
@@ -1115,44 +1115,54 @@ const refreshActivity = () => { if (activityFile.files?.[0])
 activityPause.oninput = refreshActivity;
 activityMovingSpeed.oninput = refreshActivity;
 activityRestDetection.onchange = () => { activityMovingSpeed.disabled = !activityRestDetection.checked; refreshActivity(); };
-function applySubsectionPaceColumns() { if (!routePrediction)
-    return; const childIndexes = new Map<number, number>(); document.querySelectorAll<HTMLTableRowElement>('#rows tr.sub-row').forEach(row => { const primary = Number(row.dataset.primary), childIndex = childIndexes.get(primary) ?? 0, section = ms[primary]?.c[childIndex]; childIndexes.set(primary, childIndex + 1); if (!section)
-    return; const from = p[section.a].d, to = p[section.b].d, distance = to - from, change = p[section.b].ele! - p[section.a].ele!, predicted = routePrediction!.cumulative[section.b] - routePrediction!.cumulative[section.a]; if (row.cells.length >= 11) {
-    row.cells[7].textContent = durationText(predicted);
-    row.cells[8].textContent = distance > 0 ? `${paceText(predicted / (distance / 1000))}/km` : '—';
-    row.cells[9].textContent = vamText(change, predicted);
-    row.cells[10].textContent = durationText(routePrediction!.cumulative[section.b]);
-} if (activity.length && row.cells.length >= 16) {
-    const comparison = activityComparison(from, to), atEnd = interpolateActivityTime(to), cumulative = atEnd === null ? null : atEnd - activity[0].moving;
-    row.cells[11].textContent = comparison ? durationText(comparison.actual) : '—';
-    row.cells[12].textContent = comparison && distance > 0 ? `${paceText(comparison.actual / (distance / 1000))}/km` : '—';
-    row.cells[13].textContent = comparison ? vamText(change, comparison.actual) : '—';
-    row.cells[14].textContent = cumulative === null ? '—' : durationText(cumulative);
-    row.cells[15].textContent = comparison ? signedDuration(comparison.delta) : '—';
-} }); }
-function applyActivityColumns() {
+function activityViewAccessor(): ActivityViewAccessor | null {
     if (!activity.length || !routePrediction)
-        return;
-    const terrainTable = $('#rows').closest('table')!;
-    terrainTable.querySelectorAll('.activity-result').forEach(cell => cell.remove());
-    terrainTable.querySelector('thead')!.innerHTML = `<tr><th rowspan="2">#</th><th rowspan="2">Type</th><th rowspan="2">From</th><th rowspan="2">To</th><th rowspan="2">Distance</th><th rowspan="2">Elevation change</th><th rowspan="2">Average grade</th><th colspan="4">Predicted Pace Analysis — ${escapeHtml(activePaceCurve().name)}</th><th colspan="5">Actual (Recorded Activity)</th></tr><tr><th>Time</th><th>Pace</th><th>VAM</th><th>Cumulative</th><th>Time</th><th>Pace</th><th>VAM</th><th>Cumulative</th><th>Difference</th></tr>`;
-    terrainTable.querySelectorAll<HTMLTableRowElement>('tbody tr').forEach(row => {
-        if (row.classList.contains('sub-row')) {
-            row.insertAdjacentHTML('beforeend', '<td class="activity-result"></td><td class="activity-result"></td><td class="activity-result"></td><td class="activity-result"></td><td class="activity-result"></td>');
-            return;
-        }
-        const section = ms[Number(row.dataset.primary)], from = p[section.a].d, to = p[section.b].d, distance = to - from, change = p[section.b].ele! - p[section.a].ele!, comparison = activityComparison(from, to), atEnd = interpolateActivityTime(to), cumulative = atEnd === null ? null : atEnd - activity[0].moving;
-        row.insertAdjacentHTML('beforeend', `<td class="activity-result">${comparison ? durationText(comparison.actual) : '—'}</td><td class="activity-result">${comparison && distance > 0 ? paceText(comparison.actual / (distance / 1000)) + '/km' : '—'}</td><td class="activity-result">${comparison ? vamText(change, comparison.actual) : '—'}</td><td class="activity-result">${cumulative === null ? '—' : durationText(cumulative)}</td><td class="activity-result">${comparison ? signedDuration(comparison.delta) : '—'}</td>`);
-    });
-    const waypointTable = waypointSegmentPanel.querySelector('table');
-    if (!waypointTable)
-        return;
-    waypointTable.querySelectorAll('.activity-result').forEach(cell => cell.remove());
-    waypointTable.querySelector('thead')!.innerHTML = `<tr><th rowspan="3">Segment</th><th rowspan="3">Distance</th><th rowspan="3">Elevation change</th><th rowspan="3">Average grade</th><th colspan="8">Predicted Pace Analysis — ${escapeHtml(activePaceCurve().name)}</th><th colspan="5">Actual (Recorded Activity)</th></tr><tr><th colspan="4">Segment Average</th><th colspan="4">Local Gradient</th><th rowspan="2">Pace</th><th rowspan="2">VAM</th><th rowspan="2">Time</th><th rowspan="2">Cumulative</th><th rowspan="2">Difference</th></tr><tr><th>Pace</th><th>VAM</th><th>Time</th><th>Cumulative</th><th>Pace</th><th>VAM</th><th>Time</th><th>Cumulative</th></tr>`;
-    waypointTable.querySelectorAll<HTMLTableRowElement>('tbody tr').forEach((row, position) => { const start = routeWaypoints[position], end = routeWaypoints[position + 1]; if (!start || !end)
-        return; const from = p[start.index].d, to = p[end.index].d, geometry = routeWaypointGeometry(start, end), distance = geometry.distance, change = geometry.elevationChange, comparison = activityComparison(from, to), atEnd = interpolateActivityTime(to), cumulative = atEnd === null ? null : atEnd - activity[0].moving; row.insertAdjacentHTML('beforeend', `<td class="activity-result">${comparison && distance > 0 ? paceText(comparison.actual / (distance / 1000)) + '/km' : '—'}</td><td class="activity-result">${comparison ? vamText(change, comparison.actual) : '—'}</td><td class="activity-result">${comparison ? durationText(comparison.actual) : '—'}</td><td class="activity-result">${cumulative === null ? '—' : durationText(cumulative)}</td><td class="activity-result">${comparison ? signedDuration(comparison.delta) : '—'}</td>`); });
-    const footerRows = waypointTable.querySelectorAll<HTMLTableRowElement>('tfoot tr'), total = activityComparison(activity[0].routeD, activity.at(-1)!.routeD), totalDistance = activity.at(-1)!.routeD - activity[0].routeD, totalChange = profile[locate(activity.at(-1)!.routeD)] - profile[locate(activity[0].routeD)];
-    footerRows.forEach((row, index) => row.insertAdjacentHTML('beforeend', index === 0 && total ? `<td class="activity-result">${totalDistance > 0 ? `${paceText(total.actual / (totalDistance / 1000))}/km` : '—'}</td><td class="activity-result">${vamText(totalChange, total.actual)}</td><td class="activity-result">${durationText(total.actual)}</td><td class="activity-result">${durationText(total.actual)}</td><td class="activity-result">${signedDuration(total.delta)}</td>` : '<td class="activity-result"></td><td class="activity-result"></td><td class="activity-result"></td><td class="activity-result"></td><td class="activity-result"></td>'));
+        return null;
+    return {
+        compare: activityComparison,
+        cumulativeAt: distance => {
+            const value = interpolateActivityTime(distance);
+            return value === null ? null : value - activity[0].moving;
+        },
+    };
+}
+
+function metricCells(metric: PaceMetricsViewModel | null) {
+    if (!metric)
+        return '<td>—</td><td>—</td><td>—</td><td>—</td>';
+    return `<td>${durationText(metric.seconds)}</td><td>${metric.paceSecondsPerKm === null ? '—' : `${paceText(metric.paceSecondsPerKm)}/km`}</td><td>${metric.vamMetersPerHour === null ? '—' : vamText(metric.vamMetersPerHour, 3600)}</td><td>${durationText(metric.cumulativeSeconds)}</td>`;
+}
+
+function terrainTableHeader(showPrediction: boolean, showActivity: boolean) {
+    const base = '<th rowspan="2">#</th><th rowspan="2">Type</th><th rowspan="2">From</th><th rowspan="2">To</th><th rowspan="2">Distance</th><th rowspan="2">Elevation change</th><th rowspan="2">Average grade</th>';
+    if (!showPrediction)
+        return '<tr><th>#</th><th>Type</th><th>From</th><th>To</th><th>Distance</th><th>Elevation change</th><th>Average grade</th></tr>';
+    const actual = showActivity ? '<th colspan="5">Actual (Recorded Activity)</th>' : '';
+    const actualColumns = showActivity ? '<th>Time</th><th>Pace</th><th>VAM</th><th>Cumulative</th><th>Difference</th>' : '';
+    return `<tr>${base}<th colspan="4">Predicted Pace Analysis — ${escapeHtml(activePaceCurve().name)}</th>${actual}</tr><tr><th>Time</th><th>Pace</th><th>VAM</th><th>Cumulative</th>${actualColumns}</tr>`;
+}
+
+function terrainRowHtml(row: TerrainRowViewModel, showPrediction: boolean, showActivity: boolean) {
+    const hidden = row.child && collapsedPrimary.has(row.primaryIndex) ? ' hidden' : '';
+    const toggle = !row.child && row.hasChildren
+        ? `<button type="button" class="section-toggle" data-collapse="${row.primaryIndex}" aria-expanded="${!collapsedPrimary.has(row.primaryIndex)}" title="${collapsedPrimary.has(row.primaryIndex) ? 'Show' : 'Hide'} sub-sections">${collapsedPrimary.has(row.primaryIndex) ? '▸' : '▾'}</button>`
+        : '';
+    const predicted = showPrediction ? metricCells(row.predicted) : '';
+    const actual = showActivity
+        ? row.actual
+            ? `<td>${durationText(row.actual.seconds)}</td><td>${row.actual.paceSecondsPerKm === null ? '—' : `${paceText(row.actual.paceSecondsPerKm)}/km`}</td><td>${row.actual.vamMetersPerHour === null ? '—' : vamText(row.actual.vamMetersPerHour, 3600)}</td><td>${durationText(row.actual.cumulativeSeconds)}</td><td>${signedDuration(row.actual.differenceSeconds)}</td>`
+            : '<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>'
+        : '';
+    return `<tr class="${row.child ? 'sub-row' : ''}" data-primary="${row.primaryIndex}"${hidden}><td>${toggle}${row.number}</td><td class="${row.kind}">${row.child ? '↳ ' : ''}${escapeHtml(row.label)}</td><td>${fmt(row.startDistance)}</td><td>${fmt(row.endDistance)}</td><td>${fmt(row.distance)}</td><td>${row.elevationChange >= 0 ? '+' : ''}${Math.round(row.elevationChange)} m</td><td>${row.averageGrade === null ? '—' : `${row.averageGrade.toFixed(1)}%`}</td>${predicted}${actual}</tr>`;
+}
+
+function renderTerrainTable() {
+    const showPrediction = paceEstimate !== null && routePrediction !== null;
+    const activityAccessor = showPrediction ? activityViewAccessor() : null;
+    const rows = createTerrainRows(p, ms, showPrediction ? routePrediction : null, activityAccessor);
+    const table = $('#rows').closest('table')!;
+    table.querySelector('thead')!.innerHTML = terrainTableHeader(showPrediction, activityAccessor !== null);
+    $('#rows').innerHTML = rows.map(row => terrainRowHtml(row, showPrediction, activityAccessor !== null)).join('');
 }
 function downloadActivityCsv() {
     if (!activity.length || !routePrediction)
@@ -1171,106 +1181,77 @@ function downloadActivityCsv() {
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-function addSummaryGradients() { const summaries = ([...document.querySelectorAll<HTMLElement>('#stats .stat')]).slice(0, 4); (['climb', 'descent'] as K[]).forEach(kind => { let distance = 0, change = 0; ss.filter(section => section.k === kind).forEach(section => { distance += len(section); change += p[section.b].ele! - p[section.a].ele!; }); const card = summaries.find(item => item.classList.contains(kind)), label = card?.querySelector('span'); if (label && distance)
-    label.textContent = `${kind[0].toUpperCase() + kind.slice(1)} · average ${change >= 0 ? '+' : ''}${(change / distance * 100).toFixed(1)}%`; }); }
 function renderWaypointSegments() {
     if (routeWaypoints.length < 2) {
         waypointSegmentPanel.hidden = true;
         return;
     }
-    const curve = curvePoints(), canEstimate = paceEstimate !== null && routePrediction !== null && curve.length >= 2 && profile.length === p.length, paceAt = curve.length >= 2 ? createPaceInterpolator(curve) : null;
-    let totalUp = 0, totalDown = 0, averageCumulative = 0, detailedCumulative = 0, ascentAverageSeconds = 0, descentAverageSeconds = 0, ascentDetailedSeconds = 0, descentDetailedSeconds = 0, ascentDistance = 0, descentDistance = 0;
-    const rows = routeWaypoints.slice(1).map((end, position) => {
-        const start = routeWaypoints[position], { waypoint, index } = end, geometry = routeWaypointGeometry(start, end), distance = geometry.distance, change = geometry.elevationChange, grade = geometry.averageGrade;
-        if (distance <= 0)
-            return '';
-        if (change > 0) {
-            ascentDistance += distance;
-            totalUp += change;
-        }
-        else if (change < 0) {
-            descentDistance += distance;
-            totalDown -= change;
-        }
-        const detailedSeconds = canEstimate
-            ? routePrediction!.cumulative[index] - routePrediction!.cumulative[start.index]
-            : 0;
-        let averagePace = '—', averageVam = '—', averageTime = '—', averageRunning = '—', detailedPace = '—', detailedVam = '—', detailedTime = '—', detailedRunning = '—';
-        if (canEstimate) {
-            const averageSeconds = distance / 1000 * paceAt!(grade);
-            averageCumulative += averageSeconds;
-            detailedCumulative += detailedSeconds;
-            if (change > 0) {
-                ascentAverageSeconds += averageSeconds;
-                ascentDetailedSeconds += detailedSeconds;
-            }
-            else if (change < 0) {
-                descentAverageSeconds += averageSeconds;
-                descentDetailedSeconds += detailedSeconds;
-            }
-            averagePace = `${paceText(averageSeconds / (distance / 1000))}/km`;
-            averageVam = vamText(change, averageSeconds);
-            averageTime = durationText(averageSeconds);
-            averageRunning = durationText(averageCumulative);
-            detailedPace = `${paceText(detailedSeconds / (distance / 1000))}/km`;
-            detailedVam = vamText(change, detailedSeconds);
-            detailedTime = durationText(detailedSeconds);
-            detailedRunning = durationText(detailedCumulative);
-        }
-        return `<tr><td>${escapeHtml(start.waypoint.name)} → ${escapeHtml(waypoint.name)}</td><td>${fmt(distance)}</td><td>${change >= 0 ? '+' : ''}${Math.round(change)} m</td><td>${grade.toFixed(1)}%</td><td>${averagePace}</td><td>${averageVam}</td><td>${averageTime}</td><td>${averageRunning}</td><td>${detailedPace}</td><td>${detailedVam}</td><td>${detailedTime}</td><td>${detailedRunning}</td></tr>`;
+    const curve = curvePoints(), canEstimate = paceEstimate !== null && routePrediction !== null && curve.length >= 2 && profile.length === p.length, paceAt = canEstimate ? createPaceInterpolator(curve) : null, activityAccessor = canEstimate ? activityViewAccessor() : null;
+    const viewModel: WaypointSegmentsViewModel = createWaypointSegmentRows(
+        p,
+        routeWaypoints.map(({ waypoint, index }) => ({ name: waypoint.name, index, elevation: waypoint.ele })),
+        paceAt,
+        canEstimate ? routePrediction : null,
+        activityAccessor,
+    );
+    const predictedCells = (metric: PaceMetricsViewModel | null) => metric
+        ? `<td>${metric.paceSecondsPerKm === null ? '—' : `${paceText(metric.paceSecondsPerKm)}/km`}</td><td>${metric.vamMetersPerHour === null ? '—' : vamText(metric.vamMetersPerHour, 3600)}</td><td>${durationText(metric.seconds)}</td><td>${durationText(metric.cumulativeSeconds)}</td>`
+        : '<td>—</td><td>—</td><td>—</td><td>—</td>';
+    const showActivity = activityAccessor !== null;
+    const rows = viewModel.rows.map(row => {
+        const actual = showActivity
+            ? row.actual
+                ? `<td>${row.actual.paceSecondsPerKm === null ? '—' : `${paceText(row.actual.paceSecondsPerKm)}/km`}</td><td>${row.actual.vamMetersPerHour === null ? '—' : vamText(row.actual.vamMetersPerHour, 3600)}</td><td>${durationText(row.actual.seconds)}</td><td>${durationText(row.actual.cumulativeSeconds)}</td><td>${signedDuration(row.actual.differenceSeconds)}</td>`
+                : '<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>'
+            : '';
+        return `<tr><td>${escapeHtml(row.startName)} → ${escapeHtml(row.endName)}</td><td>${fmt(row.distance)}</td><td>${row.elevationChange >= 0 ? '+' : ''}${Math.round(row.elevationChange)} m</td><td>${row.averageGrade.toFixed(1)}%</td>${predictedCells(row.segmentAverage)}${predictedCells(row.localGradient)}${actual}</tr>`;
     }).join('');
-    const ascentGrade = ascentDistance ? `${(totalUp / ascentDistance * 100).toFixed(1)}%` : '—', descentGrade = descentDistance ? `${(-totalDown / descentDistance * 100).toFixed(1)}%` : '—', totals = canEstimate ? `<tr><th>Summary</th><th>${fmt(ascentDistance)}</th><th>+${Math.round(totalUp)} m</th><th>${ascentGrade}</th><th>${ascentDistance ? paceText(ascentAverageSeconds / (ascentDistance / 1000)) + '/km' : '—'}</th><th>${vamText(totalUp, ascentAverageSeconds)}</th><th></th><th>${durationText(averageCumulative)}</th><th>${ascentDistance ? paceText(ascentDetailedSeconds / (ascentDistance / 1000)) + '/km' : '—'}</th><th>${vamText(totalUp, ascentDetailedSeconds)}</th><th></th><th>${durationText(detailedCumulative)}</th></tr><tr><th></th><th>${fmt(descentDistance)}</th><th>−${Math.round(totalDown)} m</th><th>${descentGrade}</th><th>${descentDistance ? paceText(descentAverageSeconds / (descentDistance / 1000)) + '/km' : '—'}</th><th>${vamText(-totalDown, descentAverageSeconds)}</th><th></th><th></th><th>${descentDistance ? paceText(descentDetailedSeconds / (descentDistance / 1000)) + '/km' : '—'}</th><th>${vamText(-totalDown, descentDetailedSeconds)}</th><th></th><th></th></tr>` : `<tr><th>Summary</th><th>${fmt(ascentDistance)}</th><th>+${Math.round(totalUp)} m</th><th>${ascentGrade}</th><th colspan="8"></th></tr><tr><th></th><th>${fmt(descentDistance)}</th><th>−${Math.round(totalDown)} m</th><th>${descentGrade}</th><th colspan="8"></th></tr>`;
+    const activityTotal = showActivity ? activityComparison(activity[0].routeD, activity.at(-1)!.routeD) : null, activityDistance = showActivity ? activity.at(-1)!.routeD - activity[0].routeD : 0, activityChange = showActivity ? profile[locate(activity.at(-1)!.routeD)] - profile[locate(activity[0].routeD)] : 0;
+    const summaryRows = viewModel.summaries.map((summary, index) => {
+        const averagePace = summary.distance > 0 && summary.segmentAverageSeconds > 0 ? `${paceText(summary.segmentAverageSeconds / (summary.distance / 1000))}/km` : '—';
+        const localPace = summary.distance > 0 && summary.localGradientSeconds > 0 ? `${paceText(summary.localGradientSeconds / (summary.distance / 1000))}/km` : '—';
+        const averageVam = summary.segmentAverageSeconds > 0 ? vamText(summary.elevationChange, summary.segmentAverageSeconds) : '—';
+        const localVam = summary.localGradientSeconds > 0 ? vamText(summary.elevationChange, summary.localGradientSeconds) : '—';
+        const predicted = canEstimate ? `<th>${averagePace}</th><th>${averageVam}</th><th></th><th>${index === 0 ? durationText(viewModel.segmentAverageTotalSeconds) : ''}</th><th>${localPace}</th><th>${localVam}</th><th></th><th>${index === 0 ? durationText(viewModel.localGradientTotalSeconds) : ''}</th>` : '<th colspan="8"></th>';
+        const actual = showActivity ? index === 0 && activityTotal
+            ? `<th>${activityDistance > 0 ? `${paceText(activityTotal.actual / (activityDistance / 1000))}/km` : '—'}</th><th>${vamText(activityChange, activityTotal.actual)}</th><th>${durationText(activityTotal.actual)}</th><th>${durationText(activityTotal.actual)}</th><th>${signedDuration(activityTotal.delta)}</th>`
+            : '<th></th><th></th><th></th><th></th><th></th>' : '';
+        return `<tr><th>${index === 0 ? 'Summary' : ''}</th><th>${fmt(summary.distance)}</th><th>${summary.elevationChange >= 0 ? '+' : ''}${Math.round(summary.elevationChange)} m</th><th>${summary.averageGrade === null ? '—' : `${summary.averageGrade.toFixed(1)}%`}</th>${predicted}${actual}</tr>`;
+    }).join('');
+    const actualHeader = showActivity ? '<th colspan="5">Actual (Recorded Activity)</th>' : '', actualColumns = showActivity ? '<th rowspan="2">Pace</th><th rowspan="2">VAM</th><th rowspan="2">Time</th><th rowspan="2">Cumulative</th><th rowspan="2">Difference</th>' : '';
     waypointSegmentPanel.hidden = false;
-    waypointSegmentPanel.innerHTML = `<h3>Waypoint Segments</h3><p>Elevation change and Segment Average use the displayed endpoint elevations: a named waypoint’s own elevation when present, otherwise the unsmoothed route elevation. Local Gradient uses the smoothed 100 m local-gradient method from the Terrain-derived Sections analysis.</p><table><thead><tr><th rowspan="3">Segment</th><th rowspan="3">Distance</th><th rowspan="3">Elevation change</th><th rowspan="3">Average grade</th><th colspan="8">Predicted Pace Analysis — ${escapeHtml(activePaceCurve().name)}</th></tr><tr><th colspan="4">Segment Average</th><th colspan="4">Local Gradient</th></tr><tr><th>Pace</th><th>VAM</th><th>Time</th><th>Cumulative</th><th>Pace</th><th>VAM</th><th>Time</th><th>Cumulative</th></tr></thead><tbody>${rows}</tbody><tfoot>${totals}</tfoot></table>`;
+    waypointSegmentPanel.innerHTML = `<h3>Waypoint Segments</h3><p>Elevation change and Segment Average use the displayed endpoint elevations: a named waypoint’s own elevation when present, otherwise the unsmoothed route elevation. Local Gradient uses the smoothed 100 m local-gradient method from the Terrain-derived Sections analysis.</p><table><thead><tr><th rowspan="3">Segment</th><th rowspan="3">Distance</th><th rowspan="3">Elevation change</th><th rowspan="3">Average grade</th><th colspan="8">Predicted Pace Analysis — ${escapeHtml(activePaceCurve().name)}</th>${actualHeader}</tr><tr><th colspan="4">Segment Average</th><th colspan="4">Local Gradient</th>${actualColumns}</tr><tr><th>Pace</th><th>VAM</th><th>Time</th><th>Cumulative</th><th>Pace</th><th>VAM</th><th>Time</th><th>Cumulative</th></tr></thead><tbody>${rows}</tbody><tfoot>${summaryRows}</tfoot></table>`;
 }
-function syncSubsectionToggle() { const hasChildren = ms.some(section => section.c.length), hasCollapsed = ms.some((section, index) => section.c.length && collapsedPrimary.has(index)); subsectionToggleButton.hidden = !hasChildren; subsectionToggleButton.textContent = hasCollapsed ? 'Expand all' : 'Collapse all'; }
-function decorateTerrainTable() { document.querySelectorAll<HTMLTableRowElement>('#rows tr:not(.sub-row)').forEach(row => { const index = Number(row.dataset.primary), hasChildren = ms[index]?.c.length; if (!hasChildren)
-    return; let button = row.querySelector<HTMLButtonElement>('[data-collapse]'); if (!button) {
-    button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'section-toggle';
-    button.dataset.collapse = String(index);
-    row.cells[0].prepend(button);
-} const collapsed = collapsedPrimary.has(index); button.textContent = collapsed ? '▸' : '▾'; button.title = collapsed ? 'Show sub-sections' : 'Hide sub-sections'; button.setAttribute('aria-expanded', String(!collapsed)); document.querySelectorAll<HTMLTableRowElement>(`#rows tr.sub-row[data-primary="${index}"]`).forEach(child => child.hidden = collapsed); }); }
+function syncSubsectionToggle() { const hasChildren = ms.some(hasTerrainChildren), hasCollapsed = ms.some((section, index) => hasTerrainChildren(section) && collapsedPrimary.has(index)); subsectionToggleButton.hidden = !hasChildren; subsectionToggleButton.textContent = hasCollapsed ? 'Expand all' : 'Collapse all'; }
 ($('#rows') as HTMLElement).addEventListener('click', event => { const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-collapse]'); if (!button)
-    return; event.stopImmediatePropagation(); const index = Number(button.dataset.collapse); collapsedPrimary.has(index) ? collapsedPrimary.delete(index) : collapsedPrimary.add(index); decorateTerrainTable(); });
-function renderPaceColumns() { if (!paceEstimate || !routePrediction)
-    return; const table = $('#rows').closest('table')!, header = table.querySelector('thead')!;
-    header.innerHTML = `<tr><th rowspan="2">#</th><th rowspan="2">Type</th><th rowspan="2">From</th><th rowspan="2">To</th><th rowspan="2">Distance</th><th rowspan="2">Elevation change</th><th rowspan="2">Average grade</th><th colspan="4">Predicted Pace Analysis — ${escapeHtml(activePaceCurve().name)}</th></tr><tr><th>Time</th><th>Pace</th><th>VAM</th><th>Cumulative</th></tr>`;
-    let cumulative = 0;
-    table.querySelectorAll<HTMLTableRowElement>('tbody tr').forEach(row => {
-        if (row.classList.contains('sub-row')) {
-            row.insertAdjacentHTML('beforeend', '<td></td><td></td><td></td><td></td>');
-            return;
-        }
-        const index = Number(row.dataset.primary), section = ms[index], seconds = paceEstimate!.sections[index], distance = p[section.b].d - p[section.a].d, change = p[section.b].ele! - p[section.a].ele!;
-        cumulative += seconds;
-        row.insertAdjacentHTML('beforeend', `<td>${durationText(seconds)}</td><td>${distance > 0 ? paceText(seconds / (distance / 1000)) + '/km' : '—'}</td><td>${vamText(change, seconds)}</td><td>${durationText(cumulative)}</td>`);
-    });
-    applySubsectionPaceColumns();
-    $('#stats').insertAdjacentHTML('beforeend', `<article class="stat rolling"><b>${durationText(paceEstimate.total)}</b><span>Predicted time · ${escapeHtml(activePaceCurve().name)}</span></article>`);
-    decorateTerrainTable();
-}
+    return; event.stopImmediatePropagation(); const index = Number(button.dataset.collapse); collapsedPrimary.has(index) ? collapsedPrimary.delete(index) : collapsedPrimary.add(index); renderTerrainTable(); syncSubsectionToggle(); });
 function runPaceAnalysis() { const curve = curvePoints(); if (curve.length < 2) {
     predictionPanel.hidden = false;
     predictionPanel.innerHTML = `<h2>Predicted time</h2><p>The selected curve, <b>${escapeHtml(activePaceCurve().name)}</b>, needs at least two valid pace or VAM points. Edit it on the <a href="./#pace">pace curve</a> page.</p>`;
     return;
-} const prediction = buildRoutePrediction()!, sections = ms.map(section => prediction.cumulative[section.b] - prediction.cumulative[section.a]), total = prediction.cumulative.at(-1)!; paceEstimate = { total, sections }; predictionPanel.hidden = true; render(profile); renderPaceColumns(); addSummaryGradients(); renderWaypointSegments(); syncSubsectionToggle(); if (activity.length)
+} const prediction = buildRoutePrediction()!, sections = ms.map(section => prediction.cumulative[section.b] - prediction.cumulative[section.a]), total = prediction.cumulative.at(-1)!; paceEstimate = { total, sections }; predictionPanel.hidden = true; render(profile); renderWaypointSegments(); syncSubsectionToggle(); if (activity.length)
     renderActivityAnalysis(); }
 function vamValue(elevationChange: number, seconds: number) { return seconds > 0 && Number.isFinite(elevationChange) ? elevationChange * 3600 / seconds : null; }
 function vamText(elevationChange: number, seconds: number) { const value = vamValue(elevationChange, seconds); return value === null ? '—' : `${value > 0 ? '+' : value < 0 ? '−' : ''}${Math.round(Math.abs(value))} m/h`; }
 function durationText(seconds: number) { return formatDuration(seconds); }
-function render(e: number[]) { profile = e; hovered = null; hoverDistance = null; result.hidden = false; status.textContent = `${routeName ? `${routeName}: ` : ''}${p.length.toLocaleString()} points analysed across ${fmt(p.at(-1)!.d)}.${routeWarnings.length ? ` ${routeWarnings.join(' ')}` : ''}`; const ds: Record<K, number> = { climb: 0, descent: 0, flat: 0, rolling: 0 }; ss.forEach(s => ds[s.k] += len(s)); $('#stats').innerHTML = ([...Object.entries(ds), ['climb', `+${Math.round(tot.up)} m`], ['descent', `−${Math.round(tot.down)} m`]] as [
-    K,
-    string | number
-][]).map(([k, x], i) => `<article class="stat ${k}"><b>${typeof x === 'number' ? fmt(x) : x}</b><span>${i < 4 ? k[0].toUpperCase() + k.slice(1) : i === 4 ? 'Total ascent' : 'Total descent'}</span></article>`).join(''); const table = $('#rows').closest('table')!; table.querySelector('thead')!.innerHTML = '<tr><th>#</th><th>Type</th><th>From</th><th>To</th><th>Distance</th><th>Elevation change</th><th>Average grade</th></tr>'; const row = (s: S, number: string, child = false, primary = 0) => { const a = p[s.a], b = p[s.b], d = b.d - a.d, z = b.ele! - a.ele!, grade = d > 0 ? `${(z / d * 100).toFixed(1)}%` : '—'; return `<tr class="${child ? 'sub-row' : ''}" data-primary="${primary}"><td>${number}</td><td class="${s.k}">${child ? '↳ ' : ''}${s.label ?? s.k}</td><td>${fmt(a.d)}</td><td>${fmt(b.d)}</td><td>${fmt(d)}</td><td>${z >= 0 ? '+' : ''}${Math.round(z)} m</td><td>${grade}</td></tr>`; }; $('#rows').innerHTML = ms.map((m, i) => { const top: S = { k: m.k, a: m.a, b: m.b }; return row(top, String(i + 1), false, i) + (m.k === 'climb' || m.k === 'descent' ? m.c.map(s => row(s, '', true, i)).join('') : ''); }).join(''); draw(e); }
-function numberSubsections() { let current = 0, child = 0; document.querySelectorAll<HTMLTableRowElement>('#rows tr').forEach(row => { if (!row.classList.contains('sub-row')) {
-    current = Number(row.dataset.primary) + 1;
-    child = 0;
-    return;
-} const cell = row.cells[1], title = cell.dataset.title ?? cell.textContent!.replace(/^↳\s*/, ''); cell.dataset.title = title; cell.textContent = `↳ ${current}.${++child} ${title}`; }); }
+function render(e: number[]) {
+    profile = e;
+    hovered = null;
+    hoverDistance = null;
+    result.hidden = false;
+    status.textContent = `${routeName ? `${routeName}: ` : ''}${p.length.toLocaleString()} points analysed across ${fmt(p.at(-1)!.d)}.${routeWarnings.length ? ` ${routeWarnings.join(' ')}` : ''}`;
+    const viewModel = createRouteViewModel(p, ss, tot, paceEstimate?.total ?? null);
+    const terrainStats = viewModel.terrain.map(item => {
+        const label = `${item.kind[0].toUpperCase() + item.kind.slice(1)}${item.averageGrade === null ? '' : ` · average ${item.averageGrade >= 0 ? '+' : ''}${item.averageGrade.toFixed(1)}%`}`;
+        return `<article class="stat ${item.kind}"><b>${fmt(item.distance)}</b><span>${label}</span></article>`;
+    }).join('');
+    const totals = `<article class="stat climb"><b>+${Math.round(viewModel.totalAscent)} m</b><span>Total ascent</span></article><article class="stat descent"><b>−${Math.round(viewModel.totalDescent)} m</b><span>Total descent</span></article>`;
+    const prediction = viewModel.predictedSeconds === null ? '' : `<article class="stat rolling"><b>${durationText(viewModel.predictedSeconds)}</b><span>Predicted time · ${escapeHtml(activePaceCurve().name)}</span></article>`;
+    $('#stats').innerHTML = terrainStats + totals + prediction;
+    renderTerrainTable();
+    draw(e);
+}
 function draw(e: number[]) {
-    numberSubsections();
     if (!e.length)
         return;
     const total = p.at(-1)!.d;

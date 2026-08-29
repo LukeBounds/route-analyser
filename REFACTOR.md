@@ -150,11 +150,13 @@ This is a direction rather than a requirement to create every file immediately. 
 
 ### Phase 3 — make rendering deterministic
 
-- [ ] Introduce route, terrain-row, waypoint-row, and activity-comparison view models.
-- [ ] Render complete table headers and rows in one pass.
-- [ ] Remove numeric `row.cells[...]` dependencies.
-- [ ] Extract the route and pace page templates.
-- [ ] Replace page reload routing with workspace visibility changes.
+- [x] Introduce route, terrain-row, waypoint-row, and activity-comparison view models.
+- [x] Render complete table headers and rows in one pass.
+- [x] Remove numeric `row.cells[...]` dependencies.
+- [x] Extract the route and pace page templates.
+- [x] Replace page reload routing with workspace visibility changes.
+
+Phase 3 result: `src/viewModels.ts` now derives route summaries and complete terrain/waypoint table rows before rendering, while `src/templates.ts` owns the stable route and pace workspace markup. Terrain and waypoint tables are regenerated from state when prediction or activity data changes; they are no longer extended or patched by cell position. Hash navigation changes workspace visibility and preserves the loaded route, selected zoom, pace result, and activity state.
 
 ### Phase 4 — extract and improve charts
 
@@ -194,7 +196,7 @@ Before intentionally changing terrain behaviour, add compact synthetic routes co
 - Sparse and dense representations of the same route producing equivalent activity matching.
 - An activity on a crossing or repeated path producing either a correct match or an ambiguity warning.
 
-Add a small browser smoke test for loading the bundled example, running pace analysis, switching pages without losing route state, and rendering the expected table column groups.
+Add a small browser smoke test for loading the bundled example, running pace analysis, switching pages without losing route state, and rendering the expected table column groups. The Phase 3 local smoke test covered this flow; automate it in CI when browser-test infrastructure is introduced.
 
 ## Definition of done
 

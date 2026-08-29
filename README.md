@@ -44,8 +44,10 @@ The app also includes **Bob Graham — Luke’s Version** as a bundled example r
 - `src/waypoints.ts` defines the shared endpoint-elevation and segment-geometry rules for waypoint analysis.
 - `src/pace.ts` contains pace/VAM parsing, validation, interpolation, and cumulative route prediction.
 - `src/paceLibrary.ts` defines versioned browser-storage data and migration from earlier curve formats.
-- `src/main.ts` currently owns browser state, GPX XML extraction, charts, tables, and exports; the staged split is tracked in `REFACTOR.md`.
-- `tests/*.test.ts` contains regression coverage for the calculation core, terrain rules, waypoint geometry, pace prediction, and pace-library migration.
+- `src/viewModels.ts` derives route summaries and complete terrain and waypoint rows independently of the DOM.
+- `src/templates.ts` contains the stable route and pace workspace templates.
+- `src/main.ts` currently owns browser state, GPX XML extraction, charts, DOM rendering, and exports; the remaining staged split is tracked in `REFACTOR.md`.
+- `tests/*.test.ts` contains regression coverage for the calculation core, terrain rules, waypoint geometry, pace prediction, pace-library migration, view models, and page-template invariants.
 
 ## Getting started
 
