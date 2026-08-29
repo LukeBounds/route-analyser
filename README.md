@@ -41,8 +41,9 @@ The app also includes **Bob Graham — Luke’s Version** as a bundled example r
 
 - `src/core.ts` contains reusable, DOM-independent distance, formatting, persistence, and route-matching calculations.
 - `src/terrain.ts` contains the DOM-independent terrain smoothing, classification, bridging, and subsection engine.
+- `src/waypoints.ts` defines the shared endpoint-elevation and segment-geometry rules for waypoint analysis.
 - `src/main.ts` currently owns browser state, GPX XML extraction, charts, tables, and exports; the staged split is tracked in `REFACTOR.md`.
-- `tests/core.test.ts` and `tests/terrain.test.ts` contain regression coverage for the calculation core and terrain rules.
+- `tests/core.test.ts`, `tests/terrain.test.ts`, and `tests/waypoints.test.ts` contain regression coverage for the calculation core, terrain rules, and waypoint geometry.
 
 ## Getting started
 

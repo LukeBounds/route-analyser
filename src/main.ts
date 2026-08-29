@@ -23,6 +23,7 @@ import type {
     TerrainKind as K,
     TerrainSection as S,
 } from './terrain';
+import { waypointSegmentGeometry } from './waypoints';
 let paceEstimate: {
     total: number;
     sections: number[];
@@ -42,6 +43,10 @@ type W = {
     lon: number;
     ele: number | null;
 };
+type RouteWaypoint = {
+    waypoint: W;
+    index: number;
+};
 type ActivityPoint = {
     lat: number;
     lon: number;
@@ -59,10 +64,14 @@ type RoutePrediction = {
 };
 let activity: ActivityPoint[] = [], routePrediction: RoutePrediction | null = null, activityMatchQuality: RouteMatchQuality | null = null;
 const A = document.querySelector<HTMLDivElement>('#app')!, C: Record<K, string> = { climb: '#c84735', descent: '#31805a', flat: '#607183', rolling: '#b67812' };
-let p: P[] = [], waypoints: W[] = [], routeName = '', routeWaypoints: {
-    waypoint: W;
-    index: number;
-}[] = [], ss: S[] = [], ms: M[] = [], tot = { up: 0, down: 0 }, profile: number[] = [], routeWarnings: string[] = [], hovered: number | null = null, hoverDistance: number | null = null, selectionStart: number | null = null, selectionEnd: number | null = null, viewStart = 0, viewEnd = Infinity;
+let p: P[] = [], waypoints: W[] = [], routeName = '', routeWaypoints: RouteWaypoint[] = [], ss: S[] = [], ms: M[] = [], tot = { up: 0, down: 0 }, profile: number[] = [], routeWarnings: string[] = [], hovered: number | null = null, hoverDistance: number | null = null, selectionStart: number | null = null, selectionEnd: number | null = null, viewStart = 0, viewEnd = Infinity;
+function routeWaypointGeometry(start: RouteWaypoint, end: RouteWaypoint) {
+    return waypointSegmentGeometry(
+        p,
+        { index: start.index, elevation: start.waypoint.ele },
+        { index: end.index, elevation: end.waypoint.ele },
+    );
+}
 A.innerHTML = `<main><header><p class="eyebrow">Route Analyser</p><h1>Terrain analyser</h1><p>Break GPX routes into useful climb, descent, flat, and rolling sections.</p></header><section class="panel"><h2>Route and settings</h2><div class="controls"><label>GPX route<input id="file" type="file" accept=".gpx,application/gpx+xml"></label><label>Grade threshold <output id="gradeOut">2%</output><input id="grade" type="range" min="1" max="12" step=".5" value="2"></label><label>Rolling window <output id="windowOut">500 m</output><input id="window" type="range" min="200" max="1500" step="50" value="500"></label><label>Minimum section <output id="minOut">150 m</output><input id="min" type="range" min="25" max="1000" step="25" value="150"></label><label>Flat/rolling bridge <output id="bridgeOut">300 m</output><input id="bridge" type="range" min="0" max="1500" step="25" value="300"></label></div><details><summary>How settings work</summary><ul><li><b>Grade threshold</b> is the sustained gradient classified as climbing or descending.</li><li><b>Rolling window</b> smooths the profile and sets the maximum span for a rolling section with internal uphill and downhill movements.</li><li><b>Minimum section</b> merges small fragments into their adjacent section.</li><li><b>Flat/rolling bridge</b> optionally joins same-direction climbs/descents across a short flat or rolling interruption that is also small compared with both adjacent sections.</li><li><b>Total ascent and descent</b> use the original terrain profile so small route undulations are retained.</li></ul></details><p id="status">Choose a GPX file to begin.</p><p id="error" role="alert"></p><div id="fill" hidden><p>This GPX has no complete elevation profile. Fill it with full-detail Mapterhorn terrain tiles; only tiles crossed by the route are requested. <a href="https://mapterhorn.com/attribution/" target="_blank" rel="noreferrer">Attribution</a>.</p><button id="fillBtn">Fill terrain elevation</button></div></section><section id="result" hidden><div class="result-head"><div><p class="eyebrow">Analysis</p><h2>Route breakdown</h2></div><button id="csv">Download sections CSV</button></div><div id="stats"></div><div id="plot-range"><label>View from <input id="view-start" type="number" min="0" step="0.01"> km</label><label>to <input id="view-end" type="number" min="0" step="0.01"> km</label><button id="view-full" type="button">Full route</button><span>Click a table row to focus its primary section.</span></div><div class="legend"><span class="climb">● Climb</span><span class="descent">● Descent</span><span class="flat">● Flat</span><span class="rolling">● Rolling</span></div><canvas id="chart" aria-label="Terrain colour coded elevation profile"></canvas><div class="table"><table><thead><tr><th>#</th><th>Type</th><th>From</th><th>To</th><th>Distance</th><th>Elevation change</th><th>Average grade</th></tr></thead><tbody id="rows"></tbody></table></div></section></main>`;
 const $ = <T extends Element>(x: string) => document.querySelector<T>(x)!, $f = $('#file') as HTMLInputElement, status = $('#status'), error = $('#error'), fill = $('#fill') as HTMLElement, result = $('#result') as HTMLElement, chart = $('#chart') as HTMLCanvasElement;
 status.textContent = 'Choose a GPX file or load an example route to begin.';
@@ -78,7 +87,7 @@ waypointAnalysisHeading.className = 'analysis-divider';
 waypointAnalysisHeading.textContent = 'Waypoint-defined analysis';
 const waypointAnalysisNote = document.createElement('p');
 waypointAnalysisNote.className = 'waypoint-note';
-waypointAnalysisNote.textContent = 'Only GPX waypoints with a name are included here. Start and End are added automatically so the segment analysis covers the full route.';
+waypointAnalysisNote.textContent = 'Only GPX waypoints with a name are included here. Start and End are added automatically so the segment analysis covers the full route. A waypoint’s own elevation is used when available; otherwise its unsmoothed route elevation is used.';
 result.insertBefore(waypointAnalysisHeading, waypointPanel);
 result.insertBefore(waypointAnalysisNote, waypointPanel);
 const waypointSegmentPanel = document.createElement('section');
@@ -1153,7 +1162,7 @@ function applyActivityColumns() {
     waypointTable.querySelectorAll('.activity-result').forEach(cell => cell.remove());
     waypointTable.querySelector('thead')!.innerHTML = `<tr><th rowspan="3">Segment</th><th rowspan="3">Distance</th><th rowspan="3">Elevation change</th><th rowspan="3">Average grade</th><th colspan="8">Predicted Pace Analysis — ${escapeHtml(activePaceCurve().name)}</th><th colspan="5">Actual (Recorded Activity)</th></tr><tr><th colspan="4">Segment Average</th><th colspan="4">Local Gradient</th><th rowspan="2">Pace</th><th rowspan="2">VAM</th><th rowspan="2">Time</th><th rowspan="2">Cumulative</th><th rowspan="2">Difference</th></tr><tr><th>Pace</th><th>VAM</th><th>Time</th><th>Cumulative</th><th>Pace</th><th>VAM</th><th>Time</th><th>Cumulative</th></tr>`;
     waypointTable.querySelectorAll<HTMLTableRowElement>('tbody tr').forEach((row, position) => { const start = routeWaypoints[position], end = routeWaypoints[position + 1]; if (!start || !end)
-        return; const from = p[start.index].d, to = p[end.index].d, distance = to - from, change = profile[end.index] - profile[start.index], comparison = activityComparison(from, to), atEnd = interpolateActivityTime(to), cumulative = atEnd === null ? null : atEnd - activity[0].moving; row.insertAdjacentHTML('beforeend', `<td class="activity-result">${comparison && distance > 0 ? paceText(comparison.actual / (distance / 1000)) + '/km' : '—'}</td><td class="activity-result">${comparison ? vamText(change, comparison.actual) : '—'}</td><td class="activity-result">${comparison ? durationText(comparison.actual) : '—'}</td><td class="activity-result">${cumulative === null ? '—' : durationText(cumulative)}</td><td class="activity-result">${comparison ? signedDuration(comparison.delta) : '—'}</td>`); });
+        return; const from = p[start.index].d, to = p[end.index].d, geometry = routeWaypointGeometry(start, end), distance = geometry.distance, change = geometry.elevationChange, comparison = activityComparison(from, to), atEnd = interpolateActivityTime(to), cumulative = atEnd === null ? null : atEnd - activity[0].moving; row.insertAdjacentHTML('beforeend', `<td class="activity-result">${comparison && distance > 0 ? paceText(comparison.actual / (distance / 1000)) + '/km' : '—'}</td><td class="activity-result">${comparison ? vamText(change, comparison.actual) : '—'}</td><td class="activity-result">${comparison ? durationText(comparison.actual) : '—'}</td><td class="activity-result">${cumulative === null ? '—' : durationText(cumulative)}</td><td class="activity-result">${comparison ? signedDuration(comparison.delta) : '—'}</td>`); });
     const footerRows = waypointTable.querySelectorAll<HTMLTableRowElement>('tfoot tr'), total = activityComparison(activity[0].routeD, activity.at(-1)!.routeD), totalDistance = activity.at(-1)!.routeD - activity[0].routeD, totalChange = profile[locate(activity.at(-1)!.routeD)] - profile[locate(activity[0].routeD)];
     footerRows.forEach((row, index) => row.insertAdjacentHTML('beforeend', index === 0 && total ? `<td class="activity-result">${totalDistance > 0 ? `${paceText(total.actual / (totalDistance / 1000))}/km` : '—'}</td><td class="activity-result">${vamText(totalChange, total.actual)}</td><td class="activity-result">${durationText(total.actual)}</td><td class="activity-result">${durationText(total.actual)}</td><td class="activity-result">${signedDuration(total.delta)}</td>` : '<td class="activity-result"></td><td class="activity-result"></td><td class="activity-result"></td><td class="activity-result"></td><td class="activity-result"></td>'));
 }
@@ -1167,7 +1176,7 @@ function downloadActivityCsv() {
     const start = activity[0].routeD, end = activity.at(-1)!.routeD;
     addComparison('summary', '', '', '', start, end, profile[locate(end)] - profile[locate(start)]);
     ms.forEach((section, index) => { const from = p[section.a].d, to = p[section.b].d; addComparison('terrain_section', index + 1, '', '', from, to, p[section.b].ele! - p[section.a].ele!); section.c.forEach((child, childIndex) => addComparison('terrain_subsection', `${index + 1}.${childIndex + 1}`, '', '', p[child.a].d, p[child.b].d, p[child.b].ele! - p[child.a].ele!)); });
-    routeWaypoints.slice(1).forEach(({ waypoint, index }, position) => { const startPoint = routeWaypoints[position]; addComparison('waypoint_segment', '', startPoint.waypoint.name, waypoint.name, p[startPoint.index].d, p[index].d, profile[index] - profile[startPoint.index]); });
+    routeWaypoints.slice(1).forEach((endPoint, position) => { const startPoint = routeWaypoints[position], geometry = routeWaypointGeometry(startPoint, endPoint); addComparison('waypoint_segment', '', startPoint.waypoint.name, endPoint.waypoint.name, p[startPoint.index].d, p[endPoint.index].d, geometry.elevationChange); });
     const csv = [header, ...rows].map(row => row.map(value => `"${value.replace(/"/g, '""')}"`).join(',')).join('\n'), url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })), link = document.createElement('a');
     link.href = url;
     link.download = 'activity-comparison.csv';
@@ -1181,15 +1190,14 @@ function renderWaypointSegments() {
         waypointSegmentPanel.hidden = true;
         return;
     }
-    const curve = curvePoints(), canEstimate = paceEstimate !== null && curve.length >= 2 && profile.length === p.length, elevations = profile.length === p.length ? profile : p.map(point => point.ele!), paceAt = (grade: number) => { if (grade <= curve[0].grade)
+    const curve = curvePoints(), canEstimate = paceEstimate !== null && curve.length >= 2 && profile.length === p.length, paceAt = (grade: number) => { if (grade <= curve[0].grade)
         return curve[0].seconds; if (grade >= curve.at(-1)!.grade)
         return curve.at(-1)!.seconds; const upper = curve.find(point => point.grade >= grade)!, lower = curve[curve.indexOf(upper) - 1]; return lower.seconds + (upper.seconds - lower.seconds) * (grade - lower.grade) / (upper.grade - lower.grade); };
     let totalUp = 0, totalDown = 0, averageCumulative = 0, detailedCumulative = 0, ascentAverageSeconds = 0, descentAverageSeconds = 0, ascentDetailedSeconds = 0, descentDetailedSeconds = 0, ascentDistance = 0, descentDistance = 0;
-    const rows = routeWaypoints.slice(1).map(({ waypoint, index }, position) => {
-        const start = routeWaypoints[position], distance = p[index].d - p[start.index].d, change = elevations[index] - elevations[start.index];
+    const rows = routeWaypoints.slice(1).map((end, position) => {
+        const start = routeWaypoints[position], { waypoint, index } = end, geometry = routeWaypointGeometry(start, end), distance = geometry.distance, change = geometry.elevationChange, grade = geometry.averageGrade;
         if (distance <= 0)
             return '';
-        const grade = change / distance * 100;
         if (change > 0) {
             ascentDistance += distance;
             totalUp += change;
@@ -1232,7 +1240,7 @@ function renderWaypointSegments() {
     }).join('');
     const ascentGrade = ascentDistance ? `${(totalUp / ascentDistance * 100).toFixed(1)}%` : '—', descentGrade = descentDistance ? `${(-totalDown / descentDistance * 100).toFixed(1)}%` : '—', totals = canEstimate ? `<tr><th>Summary</th><th>${fmt(ascentDistance)}</th><th>+${Math.round(totalUp)} m</th><th>${ascentGrade}</th><th>${ascentDistance ? paceText(ascentAverageSeconds / (ascentDistance / 1000)) + '/km' : '—'}</th><th>${vamText(totalUp, ascentAverageSeconds)}</th><th></th><th>${durationText(averageCumulative)}</th><th>${ascentDistance ? paceText(ascentDetailedSeconds / (ascentDistance / 1000)) + '/km' : '—'}</th><th>${vamText(totalUp, ascentDetailedSeconds)}</th><th></th><th>${durationText(detailedCumulative)}</th></tr><tr><th></th><th>${fmt(descentDistance)}</th><th>−${Math.round(totalDown)} m</th><th>${descentGrade}</th><th>${descentDistance ? paceText(descentAverageSeconds / (descentDistance / 1000)) + '/km' : '—'}</th><th>${vamText(-totalDown, descentAverageSeconds)}</th><th></th><th></th><th>${descentDistance ? paceText(descentDetailedSeconds / (descentDistance / 1000)) + '/km' : '—'}</th><th>${vamText(-totalDown, descentDetailedSeconds)}</th><th></th><th></th></tr>` : `<tr><th>Summary</th><th>${fmt(ascentDistance)}</th><th>+${Math.round(totalUp)} m</th><th>${ascentGrade}</th><th colspan="8"></th></tr><tr><th></th><th>${fmt(descentDistance)}</th><th>−${Math.round(totalDown)} m</th><th>${descentGrade}</th><th colspan="8"></th></tr>`;
     waypointSegmentPanel.hidden = false;
-    waypointSegmentPanel.innerHTML = `<h3>Waypoint Segments</h3><p>Segment Average uses the end-to-end average gradient of each waypoint segment. Local Gradient uses the same 100 m local-gradient method as the Terrain-derived Sections analysis.</p><table><thead><tr><th rowspan="3">Segment</th><th rowspan="3">Distance</th><th rowspan="3">Elevation change</th><th rowspan="3">Average grade</th><th colspan="8">Predicted Pace Analysis — ${escapeHtml(activePaceCurve().name)}</th></tr><tr><th colspan="4">Segment Average</th><th colspan="4">Local Gradient</th></tr><tr><th>Pace</th><th>VAM</th><th>Time</th><th>Cumulative</th><th>Pace</th><th>VAM</th><th>Time</th><th>Cumulative</th></tr></thead><tbody>${rows}</tbody><tfoot>${totals}</tfoot></table>`;
+    waypointSegmentPanel.innerHTML = `<h3>Waypoint Segments</h3><p>Elevation change and Segment Average use the displayed endpoint elevations: a named waypoint’s own elevation when present, otherwise the unsmoothed route elevation. Local Gradient uses the smoothed 100 m local-gradient method from the Terrain-derived Sections analysis.</p><table><thead><tr><th rowspan="3">Segment</th><th rowspan="3">Distance</th><th rowspan="3">Elevation change</th><th rowspan="3">Average grade</th><th colspan="8">Predicted Pace Analysis — ${escapeHtml(activePaceCurve().name)}</th></tr><tr><th colspan="4">Segment Average</th><th colspan="4">Local Gradient</th></tr><tr><th>Pace</th><th>VAM</th><th>Time</th><th>Cumulative</th><th>Pace</th><th>VAM</th><th>Time</th><th>Cumulative</th></tr></thead><tbody>${rows}</tbody><tfoot>${totals}</tfoot></table>`;
 }
 function syncSubsectionToggle() { const hasChildren = ms.some(section => section.c.length), hasCollapsed = ms.some((section, index) => section.c.length && collapsedPrimary.has(index)); subsectionToggleButton.hidden = !hasChildren; subsectionToggleButton.textContent = hasCollapsed ? 'Expand all' : 'Collapse all'; }
 function decorateTerrainTable() { document.querySelectorAll<HTMLTableRowElement>('#rows tr:not(.sub-row)').forEach(row => { const index = Number(row.dataset.primary), hasChildren = ms[index]?.c.length; if (!hasChildren)
@@ -1424,7 +1432,7 @@ function downloadAnalysisCsv() {
         cumulative += seconds; add([[0, 'terrain_section'], [1, index + 1], [3, section.k], [4, section.k], [7, a.d], [8, b.d], [9, distance], [10, change], [11, distance > 0 ? change / distance * 100 : undefined], [12, seconds], [13, seconds === undefined || distance <= 0 ? undefined : seconds / (distance / 1000)], [14, seconds === undefined ? undefined : vamValue(change, seconds)], [15, seconds === undefined ? undefined : cumulative]]); section.c.forEach((child, childIndex) => { const start = p[child.a], end = p[child.b], childDistance = end.d - start.d, childChange = end.ele! - start.ele!, childSeconds = routePrediction ? routePrediction.cumulative[child.b] - routePrediction.cumulative[child.a] : undefined; add([[0, 'terrain_subsection'], [1, `${index + 1}.${childIndex + 1}`], [2, index + 1], [3, child.k], [4, child.label], [7, start.d], [8, end.d], [9, childDistance], [10, childChange], [11, childDistance > 0 ? childChange / childDistance * 100 : undefined], [12, childSeconds], [13, childSeconds === undefined || childDistance <= 0 ? undefined : childSeconds / (childDistance / 1000)], [14, childSeconds === undefined ? undefined : vamValue(childChange, childSeconds)], [15, routePrediction?.cumulative[child.b]]]); }); });
     routeWaypoints.forEach(({ waypoint, index }) => { const point = p[index]; add([[0, 'waypoint'], [5, waypoint.name], [7, point.d], [9, 0], [10, waypoint.ele ?? point.ele!]]); });
     let averageCumulative = 0, detailedCumulative = 0;
-    routeWaypoints.slice(1).forEach(({ waypoint, index }, position) => { const start = routeWaypoints[position], distance = p[index].d - p[start.index].d, change = profile[index] - profile[start.index], grade = distance > 0 ? change / distance * 100 : 0; let averageSeconds: number | undefined, detailedSeconds: number | undefined; if (distance > 0 && hasCurve && paceEstimate) {
+    routeWaypoints.slice(1).forEach((end, position) => { const start = routeWaypoints[position], { waypoint, index } = end, geometry = routeWaypointGeometry(start, end), distance = geometry.distance, change = geometry.elevationChange, grade = geometry.averageGrade; let averageSeconds: number | undefined, detailedSeconds: number | undefined; if (distance > 0 && hasCurve && paceEstimate) {
         averageSeconds = distance / 1000 * paceAt(grade);
         detailedSeconds = 0;
         for (let i = start.index + 1; i <= index; i++) {

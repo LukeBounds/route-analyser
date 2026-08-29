@@ -41,6 +41,8 @@ Preferred rule unless later evidence suggests otherwise:
 - Smoothed elevation for local-gradient classification and pace prediction.
 - If raw endpoint grade remains a rolling/flat sanity check, expose it as an explicit, documented rule.
 
+Decision implemented: Waypoint Segment elevation change and Segment Average use the same endpoint elevations displayed in the Waypoints table. A named waypoint's GPX elevation takes precedence; if it is absent, the unsmoothed elevation of the snapped route point is used. Local Gradient continues to use the smoothed 100 m profile.
+
 ### 3. Tables are rendered and then mutated by column number
 
 Terrain rows are rendered with base columns, predicted columns are appended later, and activity columns are removed and appended again. Subsection data is written using hard-coded cell indexes.
@@ -137,7 +139,7 @@ This is a direction rather than a requirement to create every file immediately. 
 - [x] Add shared terrain types and `TerrainSettings`.
 - [x] Extract a pure terrain analysis module.
 - [x] Make the page consume the returned `TerrainAnalysis` without intentionally changing visible results.
-- [ ] Decide and test raw versus smoothed endpoint elevation semantics.
+- [x] Decide and test raw versus smoothed waypoint endpoint elevation semantics.
 
 ### Phase 2 — centralise pace calculations
 
