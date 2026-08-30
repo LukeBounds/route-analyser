@@ -9,5 +9,6 @@ import './csv.test.js';
 import './elevation.test.js';
 import './largeTrace.test.js';
 import './activity.test.js';
+import './exportData.test.js';
 
 console.log('All regression tests passed.');

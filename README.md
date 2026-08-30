@@ -45,16 +45,17 @@ The app also includes **Bob Graham — Luke’s Version** as a bundled example r
 - `src/terrain.ts` contains the DOM-independent terrain smoothing, classification, bridging, and subsection engine.
 - `src/gpx.ts` parses route, named-waypoint, and timestamped-activity GPX data and defines their shared point types.
 - `src/activity.ts` contains DOM-independent activity alignment, moving-time, interpolation, comparison, and gradient-sample calculations.
-- `src/waypoints.ts` defines the shared endpoint-elevation and segment-geometry rules for waypoint analysis.
+- `src/waypoints.ts` snaps and merges named waypoints, adds route endpoints, and defines shared segment geometry.
 - `src/pace.ts` contains pace/VAM parsing, validation, interpolation, and cumulative route prediction.
-- `src/paceLibrary.ts` defines versioned browser-storage data and migration from earlier curve formats.
+- `src/paceLibrary.ts` defines pace-library state transitions, chart preferences, versioned storage, backup preparation, and migration.
 - `src/viewModels.ts` derives route summaries and complete terrain and waypoint rows independently of the DOM.
 - `src/templates.ts` contains the stable route and pace workspace templates.
 - `src/charts/` contains shared canvas utilities plus the terrain, curve-comparison, and recorded-activity renderers.
 - `src/elevation.ts` defines the replaceable elevation-provider boundary and the current Mapterhorn adapter.
 - `src/csv.ts` provides the shared CSV encoder, download handling, and spreadsheet-formula protection.
+- `src/exportData.ts` builds complete route-analysis and activity-comparison CSV datasets independently of the DOM.
 - `src/largeTrace.ts` centralises large-route and large-activity guidance thresholds.
-- `src/main.ts` currently owns browser state, GPX XML extraction, DOM rendering, and exports; the remaining staged split is tracked in `REFACTOR.md`.
+- `src/main.ts` currently owns browser event wiring, page rendering, and application orchestration; the remaining UI-controller split is tracked in `REFACTOR.md`.
 - `tests/*.test.ts` contains regression coverage for the calculation core, terrain rules, waypoint geometry, pace prediction, pace-library migration, view models, page-template invariants, and long-input chart bounds.
 
 ## Getting started

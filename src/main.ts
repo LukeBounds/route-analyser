@@ -1,6 +1,6 @@
 import './style.css';
 import './pace.css';
-import { builtInPaceCurves, type BuiltInPaceCurve } from './builtInPaceCurves';
+import { builtInPaceCurves } from './builtInPaceCurves';
 import { maximumValue } from './charts/canvas';
 import {
     drawActivityComparisonChart,
@@ -16,7 +16,6 @@ import {
     escapeHtml,
     formatDuration,
     formatPace,
-    haversineMeters,
     isConfidentRouteMatch,
     type PaceCurvePoint,
     type RouteMatchQuality,
@@ -31,7 +30,8 @@ import {
     interpolateRouteCumulativeTime,
     type ActivityPoint,
 } from './activity';
-import { downloadCsv, type CsvValue } from './csv';
+import { downloadCsv } from './csv';
+import { buildActivityComparisonCsv, buildRouteAnalysisCsv } from './exportData';
 import { createMapterhornProvider } from './elevation';
 import { largeTraceGuidance } from './largeTrace';
 import {
@@ -53,7 +53,7 @@ import {
     resolvePaceCurve,
     type RoutePacePrediction,
 } from './pace';
-import { createPaceLibraryState, parsePaceLibraryStorage } from './paceLibrary';
+import { PaceLibraryModel, parsePaceLibraryStorage } from './paceLibrary';
 import { pacePageTemplate, routePageTemplate } from './templates';
 import { analyseTerrain, localGradeAtDistance } from './terrain';
 import type {
@@ -61,7 +61,7 @@ import type {
     TerrainKind as K,
     TerrainSection as S,
 } from './terrain';
-import { waypointSegmentGeometry } from './waypoints';
+import { snapNamedWaypoints, waypointSegmentGeometry, type SnappedWaypoint } from './waypoints';
 import {
     createTerrainRows,
     createRouteViewModel,
@@ -79,10 +79,7 @@ let paceEstimate: {
 const collapsedPrimary = new Set<number>();
 type P = RoutePoint;
 type W = NamedWaypoint;
-type RouteWaypoint = {
-    waypoint: W;
-    index: number;
-};
+type RouteWaypoint = SnappedWaypoint;
 let activity: ActivityPoint[] = [], routePrediction: RoutePacePrediction | null = null, activityMatchQuality: RouteMatchQuality | null = null;
 const A = document.querySelector<HTMLDivElement>('#app')!, C: Record<K, string> = { climb: '#c84735', descent: '#31805a', flat: '#607183', rolling: '#b67812' };
 const elevationProvider = createMapterhornProvider();
@@ -163,7 +160,7 @@ subsectionToggleButton.onclick = () => { const hasCollapsed = ms.some((section, 
 const header = A.querySelector('header')!, routePage = A.querySelector<HTMLElement>('#route-page')!;
 type PacePoint = PaceCurvePoint;
 type SavedPaceCurve = StoredPaceCurve;
-const paceLibraryStorage = 'route-analyser.pace-curves', selectedPaceCurveStorage = 'route-analyser.selected-pace-curve', createPaceCurveId = () => typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `curve-${Date.now()}-${Math.random().toString(36).slice(2)}`, cloneBuiltInPaceCurve = (curve: BuiltInPaceCurve = builtInPaceCurves[0]) => curve.points.map(point => ({ ...point })), createBuiltInPaceLibrary = (): SavedPaceCurve[] => builtInPaceCurves.map(curve => ({ id: createPaceCurveId(), name: curve.name, points: cloneBuiltInPaceCurve(curve) })), loadPaceLibrary = () => {
+const paceLibraryStorage = 'route-analyser.pace-curves', selectedPaceCurveStorage = 'route-analyser.selected-pace-curve', paceChartPreferencesStorage = 'route-analyser.pace-chart-preferences', createPaceCurveId = () => typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `curve-${Date.now()}-${Math.random().toString(36).slice(2)}`, clonePacePoints = (points: PacePoint[]) => points.map(point => ({ ...point })), createBuiltInPaceLibrary = (): SavedPaceCurve[] => builtInPaceCurves.map(curve => ({ id: createPaceCurveId(), name: curve.name, points: clonePacePoints(curve.points) })), loadPaceLibrary = () => {
     try {
         const stored = JSON.parse(localStorage.getItem(paceLibraryStorage) || 'null');
         const library = parsePaceLibraryStorage(stored);
@@ -176,32 +173,24 @@ const paceLibraryStorage = 'route-analyser.pace-curves', selectedPaceCurveStorag
     }
 };
 const loadedPaceLibrary = loadPaceLibrary();
-let paceCurves = loadedPaceLibrary.curves, activePaceCurveId = (() => { try {
-    return localStorage.getItem(selectedPaceCurveStorage) || loadedPaceLibrary.selectedCurveId || paceCurves[0].id;
+const selectedPaceCurveId = (() => { try {
+    return localStorage.getItem(selectedPaceCurveStorage) || loadedPaceLibrary.selectedCurveId;
 }
 catch {
-    return paceCurves[0].id;
+    return loadedPaceLibrary.selectedCurveId;
 } })();
-if (!paceCurves.some(curve => curve.id === activePaceCurveId))
-    activePaceCurveId = paceCurves[0].id;
-const activePaceCurve = () => paceCurves.find(curve => curve.id === activePaceCurveId)!;
-let pacePoints: PacePoint[] = activePaceCurve().points;
-type PaceChartPreferences = {
-    curveIds: string[];
-    showPace: boolean;
-    showSpeed: boolean;
-    showVam: boolean;
-};
-const paceChartPreferencesStorage = 'route-analyser.pace-chart-preferences', loadPaceChartPreferences = (): PaceChartPreferences => {
+const storedChartPreferences = (() => {
     try {
-        const value = JSON.parse(localStorage.getItem(paceChartPreferencesStorage) || 'null') as Partial<PaceChartPreferences> | null, validIds = new Set(paceCurves.map(curve => curve.id)), curveIds = Array.isArray(value?.curveIds) ? value.curveIds.filter((id): id is string => typeof id === 'string' && validIds.has(id)) : [];
-        return { curveIds: curveIds.length ? curveIds : paceCurves.map(curve => curve.id), showPace: value?.showPace !== false, showSpeed: value?.showSpeed !== false, showVam: value?.showVam === true };
+        return JSON.parse(localStorage.getItem(paceChartPreferencesStorage) || 'null');
     }
     catch {
-        return { curveIds: paceCurves.map(curve => curve.id), showPace: true, showSpeed: true, showVam: false };
+        return null;
     }
-};
-let paceChartPreferences = loadPaceChartPreferences();
+})();
+const paceState = new PaceLibraryModel(loadedPaceLibrary.curves, selectedPaceCurveId, storedChartPreferences, createPaceCurveId);
+const paceCurves = paceState.curves, paceChartPreferences = paceState.chartPreferences;
+const activePaceCurve = () => paceState.activeCurve;
+let pacePoints: PacePoint[] = paceState.points;
 A.querySelector('main')!.insertAdjacentHTML('beforeend', pacePageTemplate(builtInPaceCurves));
 const pacePanel = A.querySelector<HTMLElement>('#pace-panel')!;
 const paceRows = pacePanel.querySelector('tbody')!, paceCanvas = pacePanel.querySelector('canvas')!, paceHeading = pacePanel.querySelector<HTMLElement>('#pace-chart-heading')!, addPace = pacePanel.querySelector<HTMLButtonElement>('#add-pace-point')!, loadBuiltInPace = pacePanel.querySelector<HTMLButtonElement>('#load-built-in-pace')!, builtInPaceSelect = pacePanel.querySelector<HTMLSelectElement>('#built-in-pace-select')!, paceCurveSelect = pacePanel.querySelector<HTMLSelectElement>('#pace-curve-select')!, paceCurveName = pacePanel.querySelector<HTMLInputElement>('#pace-curve-name')!, newPaceCurve = pacePanel.querySelector<HTMLButtonElement>('#new-pace-curve')!, duplicatePaceCurve = pacePanel.querySelector<HTMLButtonElement>('#duplicate-pace-curve')!, deletePaceCurve = pacePanel.querySelector<HTMLButtonElement>('#delete-pace-curve')!, exportPaceCurves = pacePanel.querySelector<HTMLButtonElement>('#export-pace-curves')!, importPaceCurves = pacePanel.querySelector<HTMLInputElement>('#import-pace-curves')!, paceLibraryStatus = pacePanel.querySelector<HTMLElement>('#pace-library-status')!, comparisonList = pacePanel.querySelector<HTMLElement>('#curve-comparison-list')!, chartLegend = pacePanel.querySelector<HTMLElement>('#curve-chart-legend')!, showPaceCurves = pacePanel.querySelector<HTMLInputElement>('#show-pace-curves')!, showSpeedCurves = pacePanel.querySelector<HTMLInputElement>('#show-speed-curves')!, showVamCurves = pacePanel.querySelector<HTMLInputElement>('#show-vam-curves')!, analysisCurveSelect = analysisCurveControl.querySelector<HTMLSelectElement>('select')!;
@@ -211,9 +200,9 @@ showPaceCurves.checked = paceChartPreferences.showPace;
 showSpeedCurves.checked = paceChartPreferences.showSpeed;
 showVamCurves.checked = paceChartPreferences.showVam;
 const paceMode = pacePointMethod, paceInput = pacePointInput, paceValue = (point: PacePoint) => isSemanticallyValidPacePoint(point) ? pacePointSeconds(point) : null, paceText = formatPace;
-const savePace = () => { const curve = activePaceCurve(); curve.points = pacePoints; try {
-    localStorage.setItem(paceLibraryStorage, JSON.stringify(createPaceLibraryState(paceCurves, activePaceCurveId)));
-    localStorage.setItem(selectedPaceCurveStorage, activePaceCurveId);
+const savePace = () => { pacePoints = paceState.replaceActivePoints(pacePoints); try {
+    localStorage.setItem(paceLibraryStorage, JSON.stringify(paceState.storageState()));
+    localStorage.setItem(selectedPaceCurveStorage, paceState.selectedCurveId);
     return true;
 }
 catch {
@@ -296,7 +285,7 @@ function drawPaceComparison() {
         canvas: paceCanvas,
         curves: comparisonChartSeries(),
         metric: 'pace',
-        activeCurveId: activePaceCurveId,
+        activeCurveId: paceState.selectedCurveId,
         showVam: paceChartPreferences.showVam,
         showVamGuides: showVamGuides.checked,
         hoveredGrade: hoveredPaceGrade,
@@ -311,7 +300,7 @@ function drawSpeedComparison() {
         canvas: speedCanvas,
         curves: comparisonChartSeries(),
         metric: 'speed',
-        activeCurveId: activePaceCurveId,
+        activeCurveId: paceState.selectedCurveId,
         showVam: paceChartPreferences.showVam,
         showVamGuides: showVamGuides.checked,
         hoveredGrade: hoveredSpeedGrade,
@@ -324,26 +313,19 @@ comparisonList.addEventListener('change', event => {
     const input = event.target as HTMLInputElement, id = input.dataset.compareCurve;
     if (!id)
         return;
-    const selected = new Set(paceChartPreferences.curveIds);
-    if (input.checked)
-        selected.add(id);
-    else if (selected.size > 1)
-        selected.delete(id);
-    else {
+    if (!paceState.setCurveCompared(id, input.checked)) {
         input.checked = true;
         paceLibraryStatus.textContent = 'Keep at least one curve selected for comparison.';
         return;
     }
-    paceChartPreferences.curveIds = [...selected];
     savePaceChartPreferences();
     redrawHorizontalVamGuides();
 });
 const updateChartSeries = () => {
-    if (!showPaceCurves.checked && !showSpeedCurves.checked) {
+    if (!paceState.setChartSeries(showPaceCurves.checked, showSpeedCurves.checked, showVamCurves.checked)) {
         showPaceCurves.checked = true;
         paceLibraryStatus.textContent = 'Keep at least one of the Pace or Speed charts enabled.';
     }
-    paceChartPreferences = { ...paceChartPreferences, showPace: showPaceCurves.checked, showSpeed: showSpeedCurves.checked, showVam: showVamCurves.checked };
     savePaceChartPreferences();
     redrawHorizontalVamGuides();
 };
@@ -397,31 +379,22 @@ const chartResizeObserver = new ResizeObserver(entries => {
     scheduleChartRedraw();
 });
 chartResizeObserver.observe(A);
-const uniquePaceCurveName = (requested: string, ignoreId?: string) => {
-    const base = requested.trim() || 'Pace curve', names = new Set(paceCurves.filter(curve => curve.id !== ignoreId).map(curve => curve.name.toLocaleLowerCase()));
-    if (!names.has(base.toLocaleLowerCase()))
-        return base;
-    let suffix = 2;
-    while (names.has(`${base} ${suffix}`.toLocaleLowerCase()))
-        suffix++;
-    return `${base} ${suffix}`;
-};
 const syncPaceCurveControls = () => {
     const options = paceCurves.map(curve => `<option value="${escapeHtml(curve.id)}">${escapeHtml(curve.name)}</option>`).join('');
     paceCurveSelect.innerHTML = options;
     analysisCurveSelect.innerHTML = options;
-    paceCurveSelect.value = activePaceCurveId;
-    analysisCurveSelect.value = activePaceCurveId;
+    paceCurveSelect.value = paceState.selectedCurveId;
+    analysisCurveSelect.value = paceState.selectedCurveId;
     paceCurveName.value = activePaceCurve().name;
     deletePaceCurve.disabled = paceCurves.length <= 1;
     renderPaceComparisonControls();
 };
 const selectPaceCurve = (id: string) => {
-    if (id === activePaceCurveId || !paceCurves.some(curve => curve.id === id))
+    if (id === paceState.selectedCurveId || !paceCurves.some(curve => curve.id === id))
         return;
     savePace();
-    activePaceCurveId = id;
-    pacePoints = activePaceCurve().points;
+    paceState.select(id);
+    pacePoints = paceState.points;
     savePace();
     syncPaceCurveControls();
     renderPace();
@@ -441,9 +414,9 @@ paceCurveName.oninput = () => {
         paceLibraryStatus.textContent = 'A pace curve needs a name.';
         return;
     }
-    activePaceCurve().name = name;
+    paceState.renameActive(name, false);
     [paceCurveSelect, analysisCurveSelect].forEach(select => {
-        const option = [...select.options].find(item => item.value === activePaceCurveId);
+        const option = [...select.options].find(item => item.value === paceState.selectedCurveId);
         if (option)
             option.textContent = name;
     });
@@ -458,19 +431,16 @@ paceCurveName.onchange = () => {
         paceLibraryStatus.textContent = 'A pace curve needs a name.';
         return;
     }
-    const name = uniquePaceCurveName(requested, activePaceCurveId);
-    activePaceCurve().name = name;
+    const name = paceState.renameActive(requested, true)!;
     savePace();
     syncPaceCurveControls();
     paceLibraryStatus.textContent = `Saved as ${name}.`;
 };
 newPaceCurve.onclick = () => {
-    const template = builtInPaceCurves.find(curve => curve.key === builtInPaceSelect.value) ?? builtInPaceCurves[0], curve: SavedPaceCurve = { id: createPaceCurveId(), name: uniquePaceCurveName('New pace curve'), points: cloneBuiltInPaceCurve(template) };
-    paceCurves.push(curve);
-    paceChartPreferences.curveIds.push(curve.id);
+    const template = builtInPaceCurves.find(curve => curve.key === builtInPaceSelect.value) ?? builtInPaceCurves[0];
+    paceState.createCurve('New pace curve', template.points);
     savePaceChartPreferences();
-    activePaceCurveId = curve.id;
-    pacePoints = curve.points;
+    pacePoints = paceState.points;
     savePace();
     syncPaceCurveControls();
     renderPace();
@@ -480,12 +450,9 @@ newPaceCurve.onclick = () => {
     paceLibraryStatus.textContent = `New curve created from the ${template.name} built-in values.`;
 };
 duplicatePaceCurve.onclick = () => {
-    const source = activePaceCurve(), curve: SavedPaceCurve = { id: createPaceCurveId(), name: uniquePaceCurveName(`${source.name} copy`), points: source.points.map(point => ({ ...point })) };
-    paceCurves.push(curve);
-    paceChartPreferences.curveIds.push(curve.id);
+    paceState.duplicateActive();
     savePaceChartPreferences();
-    activePaceCurveId = curve.id;
-    pacePoints = curve.points;
+    pacePoints = paceState.points;
     savePace();
     syncPaceCurveControls();
     renderPace();
@@ -500,15 +467,9 @@ deletePaceCurve.onclick = () => {
     const deleting = activePaceCurve();
     if (!window.confirm(`Delete “${deleting.name}”?`))
         return;
-    const index = paceCurves.indexOf(deleting);
-    paceCurves.splice(index, 1);
-    const next = paceCurves[Math.min(index, paceCurves.length - 1)];
-    paceChartPreferences.curveIds = paceChartPreferences.curveIds.filter(id => id !== deleting.id);
-    if (!paceChartPreferences.curveIds.length)
-        paceChartPreferences.curveIds = [next.id];
+    paceState.deleteActive();
     savePaceChartPreferences();
-    activePaceCurveId = next.id;
-    pacePoints = next.points;
+    pacePoints = paceState.points;
     savePace();
     syncPaceCurveControls();
     renderPace();
@@ -517,7 +478,7 @@ deletePaceCurve.onclick = () => {
 };
 exportPaceCurves.onclick = () => {
     savePace();
-    const backup = { format: 'route-analyser-pace-curves', version: 1, exportedAt: new Date().toISOString(), selectedCurveId: activePaceCurveId, curves: paceCurves }, url = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })), link = document.createElement('a');
+    const backup = paceState.backup(), url = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })), link = document.createElement('a');
     link.href = url;
     link.download = 'route-analyser-pace-curves.json';
     link.click();
@@ -534,23 +495,14 @@ importPaceCurves.onchange = async () => {
         const value = parseValidatedPaceCurveBackup(JSON.parse(await file.text()));
         if (!value)
             throw Error('This is not a valid Route Analyser pace-curve backup.');
-        const imported = value.curves;
-        const importedIds = new Map<string, string>();
-        imported.forEach(source => {
-            const id = paceCurves.some(curve => curve.id === source.id) ? createPaceCurveId() : source.id, curve: SavedPaceCurve = { id, name: uniquePaceCurveName(source.name), points: source.points.map(point => ({ ...point })) };
-            importedIds.set(source.id, id);
-            paceCurves.push(curve);
-            paceChartPreferences.curveIds.push(curve.id);
-        });
-        paceChartPreferences.curveIds = [...new Set(paceChartPreferences.curveIds)];
+        const imported = paceState.importBackup(value);
         savePaceChartPreferences();
-        activePaceCurveId = value.selectedCurveId && importedIds.has(value.selectedCurveId) ? importedIds.get(value.selectedCurveId)! : importedIds.values().next().value!;
-        pacePoints = activePaceCurve().points;
+        pacePoints = paceState.points;
         savePace();
         syncPaceCurveControls();
         renderPace();
         redrawHorizontalVamGuides();
-        paceLibraryStatus.textContent = `Imported ${imported.length} ${imported.length === 1 ? 'curve' : 'curves'} without replacing your existing curves.`;
+        paceLibraryStatus.textContent = `Imported ${imported} ${imported === 1 ? 'curve' : 'curves'} without replacing your existing curves.`;
     }
     catch (problem) {
         paceLibraryStatus.textContent = problem instanceof Error ? problem.message : 'Could not import this pace-curve backup.';
@@ -559,7 +511,7 @@ importPaceCurves.onchange = async () => {
         importPaceCurves.value = '';
     }
 };
-loadBuiltInPace.onclick = () => { const template = builtInPaceCurves.find(curve => curve.key === builtInPaceSelect.value) ?? builtInPaceCurves[0]; pacePoints = cloneBuiltInPaceCurve(template); savePace(); renderPace(); redrawHorizontalVamGuides(); paceLibraryStatus.textContent = `Loaded the ${template.name} built-in values into ${activePaceCurve().name}.`; };
+loadBuiltInPace.onclick = () => { const template = builtInPaceCurves.find(curve => curve.key === builtInPaceSelect.value) ?? builtInPaceCurves[0]; pacePoints = clonePacePoints(template.points); savePace(); renderPace(); redrawHorizontalVamGuides(); paceLibraryStatus.textContent = `Loaded the ${template.name} built-in values into ${activePaceCurve().name}.`; };
 syncPaceCurveControls();
 savePace();
 const viewStartInput = $('#view-start') as HTMLInputElement, viewEndInput = $('#view-end') as HTMLInputElement;
@@ -698,58 +650,18 @@ $f.onchange = async () => { const f = $f.files?.[0]; if (!f)
 catch (e) {
     error.textContent = e instanceof Error ? e.message : 'Could not read GPX.';
 } };
-const hav = (a: Pick<P, 'lat' | 'lon'>, b: Pick<P, 'lat' | 'lon'>) => haversineMeters(a, b);
 function renderWaypoints() {
-    const named = waypoints;
     routeWaypoints = [];
     if (!p.length) {
         waypointPanel.hidden = true;
         return;
     }
-    const snapped = new Map<number, W[]>(), ignored: string[] = [];
-    named.forEach(waypoint => {
-        let index = 0, best = Infinity;
-        p.forEach((point, pointIndex) => {
-            const distance = hav(waypoint, point);
-            if (distance < best) {
-                best = distance;
-                index = pointIndex;
-            }
-        });
-        if (best > 250) {
-            ignored.push(waypoint.name);
-            return;
-        }
-        const values = snapped.get(index) ?? [];
-        values.push(waypoint);
-        snapped.set(index, values);
-    });
-    const endpoint = (name: string, index: number): { waypoint: W; index: number } => ({ waypoint: { name, lat: p[index].lat, lon: p[index].lon, ele: p[index].ele }, index });
-    const finalIndex = p.length - 1;
-    routeWaypoints = [...snapped.entries()].map(([index, values]) => ({
-        index,
-        waypoint: {
-            name: values.map(value => value.name).join(' / '),
-            lat: p[index].lat,
-            lon: p[index].lon,
-            ele: values.length === 1 ? values[0].ele : p[index].ele,
-        },
-    }));
-    const start = routeWaypoints.find(point => point.index === 0);
-    if (start)
-        start.waypoint.name = `Start — ${start.waypoint.name}`;
-    else
-        routeWaypoints.push(endpoint('Start', 0));
-    const end = routeWaypoints.find(point => point.index === finalIndex);
-    if (end)
-        end.waypoint.name = `End — ${end.waypoint.name}`;
-    else
-        routeWaypoints.push(endpoint('End', finalIndex));
-    routeWaypoints.sort((a, b) => a.index - b.index);
+    const snapped = snapNamedWaypoints(p, waypoints);
+    routeWaypoints = snapped.points;
     waypointPanel.hidden = false;
     const warning = waypointPanel.querySelector<HTMLElement>('.waypoint-warning')!;
-    warning.hidden = !ignored.length;
-    warning.textContent = ignored.length ? `${ignored.length} named ${ignored.length === 1 ? 'waypoint was' : 'waypoints were'} ignored because the nearest route point was more than 250 m away: ${ignored.join(', ')}.` : '';
+    warning.hidden = !snapped.ignoredNames.length;
+    warning.textContent = snapped.ignoredNames.length ? `${snapped.ignoredNames.length} named ${snapped.ignoredNames.length === 1 ? 'waypoint was' : 'waypoints were'} ignored because the nearest route point was more than 250 m away: ${snapped.ignoredNames.join(', ')}.` : '';
     waypointPanel.querySelector('tbody')!.innerHTML = routeWaypoints.map(({ waypoint, index }) => { const point = p[index], elevation = waypoint.ele ?? point.ele!; return `<tr><td>${escapeHtml(waypoint.name)}</td><td>${fmt(point.d)}</td><td>${Math.round(elevation)} m</td></tr>`; }).join('');
     renderWaypointSegments();
     if (profile.length === p.length)
@@ -971,15 +883,18 @@ function renderTerrainTable() {
 function downloadActivityCsv() {
     if (!activity.length || !routePrediction)
         return;
-    const header = ['record_type', 'section_number', 'start_name', 'end_name', 'start_distance_m', 'end_distance_m', 'distance_m', 'elevation_change_m', 'predicted_moving_time_s', 'predicted_pace_s_per_km', 'predicted_vam_m_per_h', 'predicted_cumulative_s', 'actual_moving_time_s', 'actual_pace_s_per_km', 'actual_vam_m_per_h', 'actual_cumulative_s', 'actual_minus_predicted_s', 'match_median_error_m', 'match_p90_error_m', 'match_within_150m_percent', 'match_ambiguous_samples', 'match_ambiguous_percent', 'recording_gap_cutoff_s', 'stationary_rest_detection', 'minimum_moving_speed_kmh', 'pace_curve_name', 'pace_curve_id'], rows: CsvValue[][] = [], add = (...values: CsvValue[]) => rows.push(values), addComparison = (recordType: string, sectionNumber: string | number, startName: string, endName: string, from: number, to: number, change: number) => {
-        const comparison = activityComparison(from, to), distance = to - from, predictedCumulative = interpolateRouteTime(to), actualAtEnd = interpolateActivityTime(to), actualCumulative = actualAtEnd === null ? undefined : actualAtEnd - activity[0].moving, summary = recordType === 'summary';
-        add(recordType, sectionNumber, startName, endName, from, to, distance, change, comparison?.expected, comparison && distance > 0 ? comparison.expected / (distance / 1000) : undefined, comparison ? vamValue(change, comparison.expected) : undefined, predictedCumulative, comparison?.actual, comparison && distance > 0 ? comparison.actual / (distance / 1000) : undefined, comparison ? vamValue(change, comparison.actual) : undefined, actualCumulative, comparison?.delta, summary ? activityMatchQuality?.medianError : undefined, summary ? activityMatchQuality?.p90Error : undefined, summary ? activityMatchQuality?.within150m : undefined, summary ? activityMatchQuality?.ambiguousSamples : undefined, summary ? activityMatchQuality?.ambiguousPercent : undefined, summary ? Number(activityPause.value) : undefined, summary ? activityRestDetection.checked : undefined, summary ? Number(activityMovingSpeed.value) : undefined, activePaceCurve().name, activePaceCurveId);
-    };
-    const start = activity[0].routeD, end = activity.at(-1)!.routeD;
-    addComparison('summary', '', '', '', start, end, profile[locate(end)] - profile[locate(start)]);
-    ms.forEach((section, index) => { const from = p[section.a].d, to = p[section.b].d; addComparison('terrain_section', index + 1, '', '', from, to, p[section.b].ele! - p[section.a].ele!); section.c.forEach((child, childIndex) => addComparison('terrain_subsection', `${index + 1}.${childIndex + 1}`, '', '', p[child.a].d, p[child.b].d, p[child.b].ele! - p[child.a].ele!)); });
-    routeWaypoints.slice(1).forEach((endPoint, position) => { const startPoint = routeWaypoints[position], geometry = routeWaypointGeometry(startPoint, endPoint); addComparison('waypoint_segment', '', startPoint.waypoint.name, endPoint.waypoint.name, p[startPoint.index].d, p[endPoint.index].d, geometry.elevationChange); });
-    downloadCsv('activity-comparison.csv', [header, ...rows]);
+    downloadCsv('activity-comparison.csv', buildActivityComparisonCsv({
+        route: p,
+        profile,
+        sections: ms,
+        waypoints: routeWaypoints,
+        activity,
+        prediction: routePrediction,
+        matchQuality: activityMatchQuality,
+        movingSettings: activityMovingSettings(),
+        paceCurveName: activePaceCurve().name,
+        paceCurveId: paceState.selectedCurveId,
+    }));
 }
 function renderWaypointSegments() {
     if (routeWaypoints.length < 2) {
@@ -1109,25 +1024,34 @@ function focusTerrainSection(row: HTMLTableRowElement) { const section = ms[Numb
     return; const row = (event.target as HTMLElement).closest<HTMLTableRowElement>('[data-primary]'); if (!row)
     return; event.preventDefault(); focusTerrainSection(row); });
 function downloadAnalysisCsv() {
-    const header = ['record_type', 'section_number', 'parent_section', 'section_type', 'section_label', 'start_name', 'end_name', 'start_distance_m', 'end_distance_m', 'distance_m', 'elevation_change_m', 'average_grade_percent', 'predicted_time_s', 'predicted_pace_s_per_km', 'predicted_vam_m_per_h', 'cumulative_time_s', 'segment_average_time_s', 'segment_average_pace_s_per_km', 'segment_average_vam_m_per_h', 'segment_average_cumulative_s', 'local_gradient_time_s', 'local_gradient_pace_s_per_km', 'local_gradient_vam_m_per_h', 'local_gradient_cumulative_s', 'setting', 'value'], rows: CsvValue[][] = [], add = (cells: [
-        number,
-        string | number | boolean | null | undefined
-    ][]) => { const output: CsvValue[] = Array(header.length).fill(''); cells.forEach(([index, value]) => { if (value !== undefined && value !== null)
-        output[index] = value; }); rows.push(output); }, curve = curvePoints(), hasCurve = curve.length >= 2, paceAt = hasCurve ? createPaceInterpolator(curve) : null;
-    [['route_distance_m', p.at(-1)?.d ?? 0], ['total_ascent_m', tot.up], ['total_descent_m', tot.down], ['predicted_route_time_s', paceEstimate?.total ?? ''], ['selected_pace_curve_name', activePaceCurve().name], ['selected_pace_curve_id', activePaceCurveId], ['grade_threshold_percent', val('#grade')], ['rolling_window_m', val('#window')], ['minimum_section_m', val('#min')], ['flat_rolling_bridge_m', val('#bridge')], ['profile_smoothing_m', Number(profileSmoothing.value)], ['counter_slope_bridge_enabled', counterBridge.checked], ['counter_slope_bridge_m', Number(counterBridgeLength.value)], ['counter_slope_reversal_percent', Number(counterReversal.value)], ['recording_gap_cutoff_s', Number(activityPause.value)], ['stationary_rest_detection', activityRestDetection.checked], ['minimum_moving_speed_kmh', Number(activityMovingSpeed.value)], ['route_parse_warnings', routeWarnings.join(' ')]].forEach(([key, value]) => add([[0, 'setting'], [24, key], [25, value]]));
-    pacePoints.forEach(point => add([[0, 'pace_curve_point'], [24, activePaceCurve().name], [25, `grade=${point.grade}; value=${point.pace}`]]));
-    let cumulative = 0;
-    ms.forEach((section, index) => { const a = p[section.a], b = p[section.b], distance = b.d - a.d, change = b.ele! - a.ele!, seconds = routePrediction ? routePrediction.cumulative[section.b] - routePrediction.cumulative[section.a] : paceEstimate?.sections[index]; if (seconds !== undefined)
-        cumulative += seconds; add([[0, 'terrain_section'], [1, index + 1], [3, section.k], [4, section.k], [7, a.d], [8, b.d], [9, distance], [10, change], [11, distance > 0 ? change / distance * 100 : undefined], [12, seconds], [13, seconds === undefined || distance <= 0 ? undefined : seconds / (distance / 1000)], [14, seconds === undefined ? undefined : vamValue(change, seconds)], [15, seconds === undefined ? undefined : cumulative]]); section.c.forEach((child, childIndex) => { const start = p[child.a], end = p[child.b], childDistance = end.d - start.d, childChange = end.ele! - start.ele!, childSeconds = routePrediction ? routePrediction.cumulative[child.b] - routePrediction.cumulative[child.a] : undefined; add([[0, 'terrain_subsection'], [1, `${index + 1}.${childIndex + 1}`], [2, index + 1], [3, child.k], [4, child.label], [7, start.d], [8, end.d], [9, childDistance], [10, childChange], [11, childDistance > 0 ? childChange / childDistance * 100 : undefined], [12, childSeconds], [13, childSeconds === undefined || childDistance <= 0 ? undefined : childSeconds / (childDistance / 1000)], [14, childSeconds === undefined ? undefined : vamValue(childChange, childSeconds)], [15, routePrediction?.cumulative[child.b]]]); }); });
-    routeWaypoints.forEach(({ waypoint, index }) => { const point = p[index]; add([[0, 'waypoint'], [5, waypoint.name], [7, point.d], [9, 0], [10, waypoint.ele ?? point.ele!]]); });
-    let averageCumulative = 0, detailedCumulative = 0;
-    routeWaypoints.slice(1).forEach((end, position) => { const start = routeWaypoints[position], { waypoint, index } = end, geometry = routeWaypointGeometry(start, end), distance = geometry.distance, change = geometry.elevationChange, grade = geometry.averageGrade; let averageSeconds: number | undefined, detailedSeconds: number | undefined; if (distance > 0 && hasCurve && paceEstimate && routePrediction) {
-        averageSeconds = distance / 1000 * paceAt!(grade);
-        detailedSeconds = routePrediction.cumulative[index] - routePrediction.cumulative[start.index];
-        averageCumulative += averageSeconds;
-        detailedCumulative += detailedSeconds;
-    } add([[0, 'waypoint_segment'], [5, start.waypoint.name], [6, waypoint.name], [7, p[start.index].d], [8, p[index].d], [9, distance], [10, change], [11, distance > 0 ? grade : undefined], [16, averageSeconds], [17, averageSeconds === undefined || distance <= 0 ? undefined : averageSeconds / (distance / 1000)], [18, averageSeconds === undefined ? undefined : vamValue(change, averageSeconds)], [19, averageSeconds === undefined ? undefined : averageCumulative], [20, detailedSeconds], [21, detailedSeconds === undefined || distance <= 0 ? undefined : detailedSeconds / (distance / 1000)], [22, detailedSeconds === undefined ? undefined : vamValue(change, detailedSeconds)], [23, detailedSeconds === undefined ? undefined : detailedCumulative]]); });
-    downloadCsv('route-analysis.csv', [header, ...rows]);
+    const settings: Array<[string, string | number | boolean]> = [
+        ['grade_threshold_percent', val('#grade')],
+        ['rolling_window_m', val('#window')],
+        ['minimum_section_m', val('#min')],
+        ['flat_rolling_bridge_m', val('#bridge')],
+        ['profile_smoothing_m', Number(profileSmoothing.value)],
+        ['counter_slope_bridge_enabled', counterBridge.checked],
+        ['counter_slope_bridge_m', Number(counterBridgeLength.value)],
+        ['counter_slope_reversal_percent', Number(counterReversal.value)],
+        ['recording_gap_cutoff_s', Number(activityPause.value)],
+        ['stationary_rest_detection', activityRestDetection.checked],
+        ['minimum_moving_speed_kmh', Number(activityMovingSpeed.value)],
+        ['route_parse_warnings', routeWarnings.join(' ')],
+    ];
+    downloadCsv('route-analysis.csv', buildRouteAnalysisCsv({
+        route: p,
+        sections: ms,
+        totals: tot,
+        prediction: routePrediction,
+        sectionPredictionSeconds: paceEstimate?.sections,
+        predictedTotalSeconds: paceEstimate?.total,
+        waypoints: routeWaypoints,
+        rawPacePoints: pacePoints,
+        resolvedPacePoints: curvePoints(),
+        paceCurveName: activePaceCurve().name,
+        paceCurveId: paceState.selectedCurveId,
+        settings,
+    }));
 }
 $('#csv').textContent = 'Download analysis CSV';
 $('#csv').addEventListener('click', downloadAnalysisCsv);

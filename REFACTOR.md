@@ -194,6 +194,18 @@ This phase addresses the remaining domain logic in `main.ts` without combining i
 
 Phase 6 result: `src/gpx.ts` now owns route, named-waypoint, and timestamped-activity XML extraction and defines the shared point types used by the application. `src/activity.ts` owns route alignment, moving-time filtering, predicted/actual interpolation, interval comparison, and actual gradient samples. `main.ts` supplies control values and presents errors but no longer implements those calculations. Regression fixtures cover recording gaps, optional stationary-rest removal, interpolation boundaries, comparisons, and 100 m actual-pace samples.
 
+### Phase 7 — extract remaining domain and state preparation
+
+- [x] Extract named-waypoint snapping, endpoint insertion, and duplicate-position merging.
+- [x] Build route-analysis and activity-comparison CSV datasets outside the DOM controller.
+- [x] Centralise pace-library and chart-preference state transitions and persistence preparation.
+- [x] Add regression fixtures for each extracted boundary.
+- [x] Leave rendering and browser event wiring for the dedicated UI-controller phase.
+
+Phase 7 should reduce `main.ts` without prematurely mixing domain extraction with the larger route/pace controller split. Export modules return rows rather than initiating downloads, and state modules return results rather than writing status messages.
+
+Phase 7 result: waypoint preparation now lives alongside waypoint geometry and returns snapped points plus ignored names. `src/exportData.ts` builds complete route and activity CSV datasets without reading controls or initiating downloads. `PaceLibraryModel` owns curve selection, naming, creation, duplication, deletion, import, comparison membership, chart visibility, and persistence/backup preparation; the page controller retains storage error messages, file interaction, and confirmation UI. Regression fixtures cover all three boundaries.
+
 ## Required regression coverage
 
 Before intentionally changing terrain behaviour, add compact synthetic routes covering:
