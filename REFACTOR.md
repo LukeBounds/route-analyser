@@ -206,6 +206,18 @@ Phase 7 should reduce `main.ts` without prematurely mixing domain extraction wit
 
 Phase 7 result: waypoint preparation now lives alongside waypoint geometry and returns snapped points plus ignored names. `src/exportData.ts` builds complete route and activity CSV datasets without reading controls or initiating downloads. `PaceLibraryModel` owns curve selection, naming, creation, duplication, deletion, import, comparison membership, chart visibility, and persistence/backup preparation; the page controller retains storage error messages, file interaction, and confirmation UI. Regression fixtures cover all three boundaries.
 
+### Phase 8 — split browser controllers and finish bootstrap
+
+- [x] Move pace-page DOM binding, persistence messages, and chart orchestration into a dedicated controller.
+- [x] Move route-page DOM binding, file interaction, analysis orchestration, and table/chart rendering into a dedicated controller.
+- [x] Reduce `main.ts` to application bootstrap, hash routing, and shared redraw scheduling.
+- [x] Preserve page state and the pace-selection contract across both controllers.
+- [x] Run the complete regression suite, production build, and bundled-route browser smoke test.
+
+This phase completes the structural refactor without changing the terrain, pace, waypoint, activity, or export calculations. Controllers may read controls and update the DOM, but they consume the pure domain modules and expose only the small cross-page contracts needed by bootstrap code.
+
+Phase 8 result: `src/pacePageController.ts` owns the pace-library controls, browser persistence, comparison charts, and the shared pace-selection interface. `src/routePageController.ts` owns route/activity file interaction, analysis controls, route state, result rendering, and route charts. `main.ts` is now a 50-line bootstrap that creates both controllers, switches hash-routed workspaces, and schedules responsive redraws. The bundled 101.91 km route, pace prediction, page switching, selected-curve synchronisation, full regression suite, and production build pass without browser console warnings.
+
 ## Required regression coverage
 
 Before intentionally changing terrain behaviour, add compact synthetic routes covering:

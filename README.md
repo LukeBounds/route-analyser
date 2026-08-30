@@ -55,7 +55,9 @@ The app also includes **Bob Graham — Luke’s Version** as a bundled example r
 - `src/csv.ts` provides the shared CSV encoder, download handling, and spreadsheet-formula protection.
 - `src/exportData.ts` builds complete route-analysis and activity-comparison CSV datasets independently of the DOM.
 - `src/largeTrace.ts` centralises large-route and large-activity guidance thresholds.
-- `src/main.ts` currently owns browser event wiring, page rendering, and application orchestration; the remaining UI-controller split is tracked in `REFACTOR.md`.
+- `src/pacePageController.ts` owns pace-page controls, browser persistence messages, comparison charts, and the pace-selection interface shared with route analysis.
+- `src/routePageController.ts` owns route/activity file interaction, analysis controls, result rendering, and route-specific charts.
+- `src/main.ts` is the application bootstrap: it creates the two page controllers, handles hash routing, and coordinates responsive redraws.
 - `tests/*.test.ts` contains regression coverage for the calculation core, terrain rules, waypoint geometry, pace prediction, pace-library migration, view models, page-template invariants, and long-input chart bounds.
 
 ## Getting started
