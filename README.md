@@ -75,6 +75,15 @@ pnpm check
 
 Create the production build with `pnpm build` and preview it locally with `pnpm preview`.
 
+After installing Playwright’s Chromium runtime with `pnpm exec playwright install chromium`, run the production browser smoke test with:
+
+```powershell
+pnpm build
+pnpm test:browser
+```
+
+Pull-request CI runs the same browser test after the compiler, regression, and production-build checks.
+
 ## GitHub Pages deployment
 
 The Pages workflow builds and deploys the application whenever `main` is pushed, and it can also be started manually from the Actions tab. The Vite base path is derived from `GITHUB_REPOSITORY`, so a normal project repository is published below `/<repository>/` while local development continues to use `/`.

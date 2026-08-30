@@ -218,6 +218,18 @@ This phase completes the structural refactor without changing the terrain, pace,
 
 Phase 8 result: `src/pacePageController.ts` owns the pace-library controls, browser persistence, comparison charts, and the shared pace-selection interface. `src/routePageController.ts` owns route/activity file interaction, analysis controls, route state, result rendering, and route charts. `main.ts` is now a 50-line bootstrap that creates both controllers, switches hash-routed workspaces, and schedules responsive redraws. The bundled 101.91 km route, pace prediction, page switching, selected-curve synchronisation, full regression suite, and production build pass without browser console warnings.
 
+### Phase 9 — automate the browser smoke test
+
+- [x] Add a deterministic browser test that starts from clean browser storage.
+- [x] Load the bundled 101.91 km route and verify terrain and waypoint analysis.
+- [x] Run a prediction with a complete built-in pace curve and verify grouped table headers.
+- [x] Switch between route and pace pages and verify route and selected-curve state are preserved.
+- [x] Run the browser smoke test in pull-request CI alongside type-checks, regressions, and the production build.
+
+This phase closes the final definition-of-done gap. The smoke test deliberately uses the bundled route rather than an external elevation request or user file, keeping it repeatable and independent of network services after dependencies are installed.
+
+Phase 9 result: Playwright starts the production preview through Vite’s programmatic API, giving the test a deterministic lifecycle on local Windows development and Linux CI. A fresh Chromium context loads the bundled route, verifies terrain and waypoint results, selects the 24h curve, runs pace analysis, checks the grouped prediction columns, switches pages in both directions, and confirms route and curve state are retained. Pull-request CI installs only Chromium and runs this test after the full build. The structural refactor now meets its definition of done.
+
 ## Required regression coverage
 
 Before intentionally changing terrain behaviour, add compact synthetic routes covering:
@@ -236,7 +248,7 @@ Before intentionally changing terrain behaviour, add compact synthetic routes co
 - Sparse and dense representations of the same route producing equivalent activity matching.
 - An activity on a crossing or repeated path producing either a correct match or an ambiguity warning.
 
-Add a small browser smoke test for loading the bundled example, running pace analysis, switching pages without losing route state, and rendering the expected table column groups. The Phase 3 local smoke test covered this flow; automate it in CI when browser-test infrastructure is introduced.
+The automated browser smoke test loads the bundled example, runs pace analysis, switches pages without losing route state, and verifies the expected table column groups in Chromium locally and in pull-request CI.
 
 ## Definition of done
 

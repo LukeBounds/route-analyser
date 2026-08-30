@@ -1,7 +1,10 @@
 node_modules/
+.playwright-browsers/
 .pnpm-store/
 dist/
 build/
 .test-build/
+playwright-report/
+test-results/
 .env
 .env.*

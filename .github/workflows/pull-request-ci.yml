@@ -33,3 +33,9 @@ jobs:
 
       - name: Type-check, test, and build
         run: pnpm run build
+
+      - name: Install Chromium for browser tests
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run browser smoke test
+        run: pnpm run test:browser
