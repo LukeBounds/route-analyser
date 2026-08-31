@@ -128,14 +128,35 @@ paceAnalysisButton.id = 'run-pace-analysis';
 paceAnalysisButton.textContent = 'Run pace analysis';
 const analysisCurveControl = document.createElement('label');
 analysisCurveControl.className = 'analysis-curve-control';
-analysisCurveControl.innerHTML = 'Pace curve <select id="analysis-curve-select" aria-label="Pace curve for route analysis"></select>';
+analysisCurveControl.innerHTML = 'Curve <select id="analysis-curve-select" aria-label="Pace curve for route analysis"></select>';
 const subsectionToggleButton = document.createElement('button');
 subsectionToggleButton.type = 'button';
 subsectionToggleButton.id = 'toggle-subsections';
+subsectionToggleButton.className = 'secondary-action';
 const resultActions = document.createElement('div');
 resultActions.className = 'result-actions';
-resultActions.append(result.querySelector('#csv')!, analysisCurveControl, paceAnalysisButton, subsectionToggleButton);
+const actionGroup = (label: string, className: string, ...controls: Element[]) => {
+    const group = document.createElement('div');
+    group.className = `result-action-group ${className}`;
+    const heading = document.createElement('span');
+    heading.className = 'result-action-label';
+    heading.textContent = label;
+    group.append(heading, ...controls);
+    return group;
+};
+const csvButton = result.querySelector<HTMLButtonElement>('#csv')!;
+csvButton.classList.add('secondary-action');
+const paceActionGroup = actionGroup('Pace analysis', 'pace-analysis-actions', analysisCurveControl, paceAnalysisButton);
+const exportActionGroup = actionGroup('Export', 'export-actions', csvButton);
+resultActions.append(paceActionGroup, exportActionGroup);
 result.querySelector('.result-head')!.append(resultActions);
+const terrainTableToolbar = document.createElement('div');
+terrainTableToolbar.className = 'terrain-table-toolbar';
+terrainTableToolbar.innerHTML = '<div><h3>Sections table</h3><p>Primary terrain sections and their local-gradient subsections.</p></div>';
+subsectionToggleButton.setAttribute('aria-controls', 'rows');
+terrainTableToolbar.append(subsectionToggleButton);
+const terrainTable = result.querySelector('#rows')!.closest('.table')!;
+result.insertBefore(terrainTableToolbar, terrainTable);
 paceAnalysisButton.onclick = () => runPaceAnalysis();
 subsectionToggleButton.onclick = () => { const hasCollapsed = ms.some((section, index) => hasTerrainChildren(section) && collapsedPrimary.has(index)); ms.forEach((section, index) => hasTerrainChildren(section) && (hasCollapsed ? collapsedPrimary.delete(index) : collapsedPrimary.add(index))); renderTerrainTable(); syncSubsectionToggle(); };
 const routePage = A.querySelector<HTMLElement>('#route-page')!;
@@ -505,7 +526,7 @@ function terrainRowHtml(row: TerrainRowViewModel, showPrediction: boolean, showA
             : '<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>'
         : '';
     const focusLabel = escapeHtml(`Focus elevation profile on section ${row.number}: ${row.label}`);
-    return `<tr class="${row.child ? 'sub-row' : ''}" data-primary="${row.primaryIndex}" tabindex="0" aria-label="${focusLabel}"${hidden}><td>${toggle}${row.number}</td><td class="${row.kind}">${row.child ? '↳ ' : ''}${escapeHtml(row.label)}</td><td>${fmt(row.startDistance)}</td><td>${fmt(row.endDistance)}</td><td>${fmt(row.distance)}</td><td>${row.elevationChange >= 0 ? '+' : ''}${Math.round(row.elevationChange)} m</td><td>${row.averageGrade === null ? '—' : `${row.averageGrade.toFixed(1)}%`}</td>${predicted}${actual}</tr>`;
+    return `<tr class="${row.child ? 'sub-row' : ''}" data-primary="${row.primaryIndex}" tabindex="0" aria-label="${focusLabel}"${hidden}><td><span class="section-number">${row.number}</span>${toggle}</td><td class="${row.kind}">${row.child ? '↳ ' : ''}${escapeHtml(row.label)}</td><td>${fmt(row.startDistance)}</td><td>${fmt(row.endDistance)}</td><td>${fmt(row.distance)}</td><td>${row.elevationChange >= 0 ? '+' : ''}${Math.round(row.elevationChange)} m</td><td>${row.averageGrade === null ? '—' : `${row.averageGrade.toFixed(1)}%`}</td>${predicted}${actual}</tr>`;
 }
 
 function renderTerrainTable() {
@@ -573,7 +594,7 @@ function renderWaypointSegments() {
     waypointSegmentPanel.hidden = false;
     waypointSegmentPanel.innerHTML = `<h3>Waypoint Segments</h3><p>Elevation change and Segment Average use the displayed endpoint elevations: a named waypoint’s own elevation when present, otherwise the unsmoothed route elevation. Local Gradient uses the smoothed 100 m local-gradient method from the Terrain-derived Sections analysis.</p><table><thead><tr><th rowspan="3">Segment</th><th rowspan="3">Distance</th><th rowspan="3">Elevation change</th><th rowspan="3">Average grade</th><th colspan="8">Predicted Pace Analysis — ${escapeHtml(activePaceCurve().name)}</th>${actualHeader}</tr><tr><th colspan="4">Segment Average</th><th colspan="4">Local Gradient</th>${actualColumns}</tr><tr><th>Pace</th><th>VAM</th><th>Time</th><th>Cumulative</th><th>Pace</th><th>VAM</th><th>Time</th><th>Cumulative</th></tr></thead><tbody>${rows}</tbody><tfoot>${summaryRows}</tfoot></table>`;
 }
-function syncSubsectionToggle() { const hasChildren = ms.some(hasTerrainChildren), hasCollapsed = ms.some((section, index) => hasTerrainChildren(section) && collapsedPrimary.has(index)); subsectionToggleButton.hidden = !hasChildren; subsectionToggleButton.textContent = hasCollapsed ? 'Expand all' : 'Collapse all'; }
+function syncSubsectionToggle() { const hasChildren = ms.some(hasTerrainChildren), hasCollapsed = ms.some((section, index) => hasTerrainChildren(section) && collapsedPrimary.has(index)); subsectionToggleButton.hidden = !hasChildren; subsectionToggleButton.textContent = hasCollapsed ? 'Expand all subsections' : 'Collapse all subsections'; }
 ($('#rows') as HTMLElement).addEventListener('click', event => { const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-collapse]'); if (!button)
     return; event.stopImmediatePropagation(); const index = Number(button.dataset.collapse); collapsedPrimary.has(index) ? collapsedPrimary.delete(index) : collapsedPrimary.add(index); renderTerrainTable(); syncSubsectionToggle(); });
 function runPaceAnalysis() { const curve = curvePoints(); if (curve.length < 2) {
@@ -718,4 +739,3 @@ return {
     },
 };
 }
-

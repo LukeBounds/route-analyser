@@ -48,8 +48,61 @@
 .result-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  justify-content: flex-end;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.result-action-group {
+  display: grid;
+  align-content: end;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-muted);
+}
+
+.result-action-label {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: .7rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.pace-analysis-actions {
+  grid-template-columns: minmax(180px, 1fr) auto;
+  background: var(--surface-accent);
+}
+
+.secondary-action {
+  border: 1px solid var(--border-input);
+  background: var(--surface);
+  color: var(--secondary-text);
+}
+
+.terrain-table-toolbar {
+  display: flex;
   align-items: end;
+  justify-content: space-between;
+  gap: 20px;
+  margin: 24px 0 8px;
+}
+
+.terrain-table-toolbar h3 {
+  margin: 0;
+}
+
+.terrain-table-toolbar p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: .84rem;
+}
+
+.terrain-table-toolbar + .table {
+  margin-top: 0;
 }
 
 .analysis-curve-control {
@@ -68,13 +121,19 @@
 .section-toggle {
   width: 22px;
   height: 22px;
-  margin-right: 5px;
+  margin-left: 6px;
   padding: 0;
   border-radius: 5px;
   background: var(--surface-soft);
   color: var(--secondary-text);
   font-size: .85rem;
   line-height: 1;
+}
+
+.section-number {
+  display: inline-block;
+  min-width: 3ch;
+  font-variant-numeric: tabular-nums;
 }
 
 .activity-input small {
@@ -509,10 +568,29 @@
 
   .result-actions {
     width: 100%;
+    justify-content: stretch;
   }
 
-  .result-actions button {
-    flex: 1;
+  .result-action-group {
+    flex: 1 1 100%;
+  }
+
+  .pace-analysis-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .result-action-group button {
+    width: 100%;
+  }
+
+  .terrain-table-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .terrain-table-toolbar button {
+    width: 100%;
   }
 }
 
