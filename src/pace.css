@@ -419,6 +419,11 @@
   width: 100%;
 }
 
+.settings-group .checkbox-control input {
+  flex: 0 0 auto;
+  width: auto;
+}
+
 .settings-group select {
   width: 100%;
   min-width: 0;

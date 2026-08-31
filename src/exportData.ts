@@ -36,100 +36,6 @@ function locateDistance(points: Array<{ d: number }>, distance: number) {
     return low;
 }
 
-export const activityCsvHeader = [
-    'record_type', 'section_number', 'start_name', 'end_name', 'start_distance_m', 'end_distance_m',
-    'distance_m', 'elevation_change_m', 'predicted_moving_time_s', 'predicted_pace_s_per_km',
-    'predicted_vam_m_per_h', 'predicted_cumulative_s', 'actual_moving_time_s', 'actual_pace_s_per_km',
-    'actual_vam_m_per_h', 'actual_cumulative_s', 'actual_minus_predicted_s', 'match_median_error_m',
-    'match_p90_error_m', 'match_within_150m_percent', 'match_ambiguous_samples', 'match_ambiguous_percent',
-    'recording_gap_cutoff_s', 'stationary_rest_detection', 'minimum_moving_speed_kmh', 'pace_curve_name',
-    'pace_curve_id',
-];
-
-export function buildActivityComparisonCsv(options: {
-    route: RoutePoint[];
-    profile: number[];
-    sections: PrimaryTerrainSection[];
-    waypoints: SnappedWaypoint[];
-    activity: ActivityPoint[];
-    prediction: RoutePacePrediction;
-    matchQuality: RouteMatchQuality | null;
-    movingSettings: {
-        gapCutoffSeconds: number;
-        detectStationaryRests: boolean;
-        minimumMovingSpeedKmh: number;
-    };
-    paceCurveName: string;
-    paceCurveId: string;
-}): CsvValue[][] {
-    const { route, profile, sections, waypoints, activity, prediction, matchQuality, movingSettings, paceCurveName, paceCurveId } = options;
-    if (!activity.length)
-        return [activityCsvHeader];
-    const predictedAt = (distance: number) => interpolateRouteCumulativeTime(route, prediction.cumulative, distance);
-    const actualAt = (distance: number) => interpolateActivityMovingTime(activity, distance);
-    const rows: CsvValue[][] = [];
-    const addComparison = (recordType: string, sectionNumber: string | number, startName: string, endName: string, from: number, to: number, change: number) => {
-        const comparison = compareActivityTimes(from, to, predictedAt, actualAt);
-        const distance = to - from;
-        const predictedCumulative = predictedAt(to);
-        const actualAtEnd = actualAt(to);
-        const actualCumulative = actualAtEnd === null ? undefined : actualAtEnd - activity[0].moving;
-        const summary = recordType === 'summary';
-        rows.push([
-            recordType, sectionNumber, startName, endName, from, to, distance, change,
-            comparison?.expected,
-            comparison && distance > 0 ? comparison.expected / (distance / 1000) : undefined,
-            comparison ? vamValue(change, comparison.expected) : undefined,
-            predictedCumulative,
-            comparison?.actual,
-            comparison && distance > 0 ? comparison.actual / (distance / 1000) : undefined,
-            comparison ? vamValue(change, comparison.actual) : undefined,
-            actualCumulative,
-            comparison?.delta,
-            summary ? matchQuality?.medianError : undefined,
-            summary ? matchQuality?.p90Error : undefined,
-            summary ? matchQuality?.within150m : undefined,
-            summary ? matchQuality?.ambiguousSamples : undefined,
-            summary ? matchQuality?.ambiguousPercent : undefined,
-            summary ? movingSettings.gapCutoffSeconds : undefined,
-            summary ? movingSettings.detectStationaryRests : undefined,
-            summary ? movingSettings.minimumMovingSpeedKmh : undefined,
-            paceCurveName,
-            paceCurveId,
-        ]);
-    };
-    const start = activity[0].routeD;
-    const end = activity.at(-1)!.routeD;
-    addComparison('summary', '', '', '', start, end, profile[locateDistance(route, end)] - profile[locateDistance(route, start)]);
-    sections.forEach((section, index) => {
-        const from = route[section.a].d;
-        const to = route[section.b].d;
-        addComparison('terrain_section', index + 1, '', '', from, to, route[section.b].ele! - route[section.a].ele!);
-        section.c.forEach((child, childIndex) => addComparison(
-            'terrain_subsection',
-            `${index + 1}.${childIndex + 1}`,
-            '',
-            '',
-            route[child.a].d,
-            route[child.b].d,
-            route[child.b].ele! - route[child.a].ele!,
-        ));
-    });
-    waypoints.slice(1).forEach((endPoint, position) => {
-        const startPoint = waypoints[position];
-        const geometry = waypointSegmentGeometry(
-            route,
-            { index: startPoint.index, elevation: startPoint.waypoint.ele },
-            { index: endPoint.index, elevation: endPoint.waypoint.ele },
-        );
-        addComparison(
-            'waypoint_segment', '', startPoint.waypoint.name, endPoint.waypoint.name,
-            route[startPoint.index].d, route[endPoint.index].d, geometry.elevationChange,
-        );
-    });
-    return [activityCsvHeader, ...rows];
-}
-
 export const routeAnalysisCsvHeader = [
     'record_type', 'section_number', 'parent_section', 'section_type', 'section_label', 'start_name',
     'end_name', 'start_distance_m', 'end_distance_m', 'distance_m', 'elevation_change_m',
@@ -138,6 +44,10 @@ export const routeAnalysisCsvHeader = [
     'segment_average_vam_m_per_h', 'segment_average_cumulative_s', 'local_gradient_time_s',
     'local_gradient_pace_s_per_km', 'local_gradient_vam_m_per_h', 'local_gradient_cumulative_s',
     'setting', 'value', 'profile_elevation_gain_m', 'profile_elevation_loss_m',
+    'actual_moving_time_s', 'actual_pace_s_per_km', 'actual_vam_m_per_h', 'actual_cumulative_s',
+    'actual_minus_predicted_s', 'match_median_error_m', 'match_p90_error_m',
+    'match_within_150m_percent', 'match_ambiguous_samples', 'match_ambiguous_percent',
+    'actual_elapsed_time_s',
 ];
 
 export function buildRouteAnalysisCsv(options: {
@@ -154,10 +64,14 @@ export function buildRouteAnalysisCsv(options: {
     paceCurveName: string;
     paceCurveId: string;
     settings: Array<[name: string, value: CsvValue]>;
+    activity?: {
+        points: ActivityPoint[];
+        matchQuality: RouteMatchQuality | null;
+    };
 }): CsvValue[][] {
     const {
         route, profileElevations, sections, totals, prediction, sectionPredictionSeconds, predictedTotalSeconds, waypoints,
-        rawPacePoints, resolvedPacePoints, paceCurveName, paceCurveId, settings,
+        rawPacePoints, resolvedPacePoints, paceCurveName, paceCurveId, settings, activity,
     } = options;
     const rows: CsvValue[][] = [];
     const add = (cells: SparseCell[]) => rows.push(sparseRow(routeAnalysisCsvHeader.length, cells));
@@ -174,6 +88,53 @@ export function buildRouteAnalysisCsv(options: {
     ];
     exportSettings.forEach(([key, value]) => add([[0, 'setting'], [24, key], [25, value]]));
     rawPacePoints.forEach(point => add([[0, 'pace_curve_point'], [24, paceCurveName], [25, `grade=${point.grade}; value=${point.pace}`]]));
+    const activityPoints = activity?.points ?? [];
+    const predictedAt = prediction
+        ? (distance: number) => interpolateRouteCumulativeTime(route, prediction.cumulative, distance)
+        : null;
+    const actualAt = activityPoints.length
+        ? (distance: number) => interpolateActivityMovingTime(activityPoints, distance)
+        : null;
+    const activityCells = (from: number, to: number, change: number): SparseCell[] => {
+        if (!actualAt)
+            return [];
+        const actualStart = actualAt(from);
+        const actualEnd = actualAt(to);
+        if (actualStart === null || actualEnd === null)
+            return [];
+        const distance = to - from;
+        const actualSeconds = actualEnd - actualStart;
+        const comparison = predictedAt ? compareActivityTimes(from, to, predictedAt, actualAt) : null;
+        return [
+            [28, actualSeconds],
+            [29, distance > 0 ? actualSeconds / (distance / 1000) : undefined],
+            [30, vamValue(change, actualSeconds)],
+            [31, actualEnd - activityPoints[0].moving],
+            [32, comparison?.delta],
+        ];
+    };
+    if (activityPoints.length && actualAt) {
+        const startDistance = activityPoints[0].routeD;
+        const endDistance = activityPoints.at(-1)!.routeD;
+        const distance = endDistance - startDistance;
+        const startIndex = locateDistance(route, startDistance);
+        const endIndex = locateDistance(route, endDistance);
+        const change = profileElevations[endIndex] - profileElevations[startIndex];
+        const comparison = predictedAt ? compareActivityTimes(startDistance, endDistance, predictedAt, actualAt) : null;
+        const quality = activity?.matchQuality;
+        add([
+            [0, 'activity_summary'], [4, 'Activity coverage'], [7, startDistance], [8, endDistance],
+            [9, distance], [10, change], [11, distance > 0 ? change / distance * 100 : undefined],
+            [12, comparison?.expected],
+            [13, comparison && distance > 0 ? comparison.expected / (distance / 1000) : undefined],
+            [14, comparison ? vamValue(change, comparison.expected) : undefined],
+            [15, predictedAt?.(endDistance)],
+            ...activityCells(startDistance, endDistance, change),
+            [33, quality?.medianError], [34, quality?.p90Error], [35, quality?.within150m],
+            [36, quality?.ambiguousSamples], [37, quality?.ambiguousPercent],
+            [38, (activityPoints.at(-1)!.time - activityPoints[0].time) / 1000],
+        ]);
+    }
     let cumulative = 0;
     sections.forEach((section, index) => {
         const start = route[section.a];
@@ -193,6 +154,7 @@ export function buildRouteAnalysisCsv(options: {
             [14, seconds === undefined ? undefined : vamValue(change, seconds)],
             [15, seconds === undefined ? undefined : cumulative],
             [26, profileElevation.up], [27, profileElevation.down],
+            ...activityCells(start.d, end.d, change),
         ]);
         section.c.forEach((child, childIndex) => {
             const childStart = route[child.a];
@@ -209,6 +171,7 @@ export function buildRouteAnalysisCsv(options: {
                 [14, childSeconds === undefined ? undefined : vamValue(childChange, childSeconds)],
                 [15, prediction?.cumulative[child.b]],
                 [26, childProfileElevation.up], [27, childProfileElevation.down],
+                ...activityCells(childStart.d, childEnd.d, childChange),
             ]);
         });
     });
@@ -245,6 +208,7 @@ export function buildRouteAnalysisCsv(options: {
             [21, detailedSeconds === undefined || geometry.distance <= 0 ? undefined : detailedSeconds / (geometry.distance / 1000)],
             [22, detailedSeconds === undefined ? undefined : vamValue(geometry.elevationChange, detailedSeconds)],
             [23, detailedSeconds === undefined ? undefined : detailedCumulative],
+            ...activityCells(route[start.index].d, route[end.index].d, geometry.elevationChange),
         ]);
     });
     return [routeAnalysisCsvHeader, ...rows];

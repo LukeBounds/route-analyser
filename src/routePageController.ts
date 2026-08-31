@@ -17,7 +17,7 @@ import {
     type ActivityPoint,
 } from './activity';
 import { downloadCsv } from './csv';
-import { buildActivityComparisonCsv, buildRouteAnalysisCsv } from './exportData';
+import { buildRouteAnalysisCsv } from './exportData';
 import { createMapterhornProvider } from './elevation';
 import { largeTraceGuidance } from './largeTrace';
 import {
@@ -54,6 +54,8 @@ export interface RoutePageController {
     readonly page: HTMLElement;
     redraw(): void;
 }
+
+class ActivityRouteMatchError extends Error {}
 
 export function createRoutePageController(A: HTMLDivElement, paceController: PacePageController): RoutePageController {
 let paceEstimate: {
@@ -107,6 +109,10 @@ result.insertBefore(predictionPanel, result.querySelector('#plot-range'));
 const activityControl = document.createElement('label');
 activityControl.className = 'activity-input';
 activityControl.innerHTML = 'Recorded activity GPX<input id="activity-file" type="file" accept=".gpx,application/gpx+xml"><small>Requires timestamped track points. It can also be analysed as its own route.</small>';
+const activityWarning = document.createElement('p');
+activityWarning.className = 'activity-warning';
+activityWarning.setAttribute('role', 'alert');
+activityWarning.hidden = true;
 const pauseControl = document.createElement('label');
 pauseControl.className = 'activity-input';
 pauseControl.innerHTML = 'Recording gap cutoff<input id="activity-pause" type="number" min="5" max="1800" step="5" value="120"> seconds<small>Timestamp gaps longer than this are excluded from moving time.</small>';
@@ -274,7 +280,7 @@ exampleRouteButton.onclick = async () => {
         exampleRouteButton.disabled = false;
     }
 };
-settingsControls.replaceChildren(settingsGroup('Route', routeFile, exampleRouteControl), settingsGroup('Recorded activity', activityControl, pauseControl, restDetectionControl, movingSpeedControl), settingsGroup('Terrain classification', gradeControl, gradientWindowControl, smoothingControl, windowControl, minimumControl), settingsGroup('Joining interruptions', bridgeControl, counterControl, counterLengthControl, counterReversalControl));
+settingsControls.replaceChildren(settingsGroup('Route', routeFile, exampleRouteControl), settingsGroup('Recorded activity', activityControl, activityWarning, pauseControl, restDetectionControl, movingSpeedControl), settingsGroup('Terrain classification', gradeControl, gradientWindowControl, smoothingControl, windowControl, minimumControl), settingsGroup('Joining interruptions', bridgeControl, counterControl, counterLengthControl, counterReversalControl));
 function setParsedRoute(parsed: ParsedRoute) {
     p = parsed.points;
     waypoints = parsed.waypoints;
@@ -292,6 +298,8 @@ function loadRouteText(text: string, name: string, fileBytes = new Blob([text]).
     paceEstimate = null;
     routePrediction = null;
     activityFile.value = '';
+    activityWarning.hidden = true;
+    activityWarning.textContent = '';
     activityPanel.hidden = true;
     routeName = name;
     const parsed = parseRouteGpx(text), largeTraceWarning = largeTraceGuidance('route', parsed.points.length, fileBytes);
@@ -380,9 +388,9 @@ function matchActivityToRoute(points: RecordedActivityPoint[]) {
     const aligned = alignActivityToRoute(p, points);
     activityMatchQuality = aligned.quality;
     if (aligned.quality.orientation === 'reverse')
-        throw Error('This activity appears to follow the route in reverse. Reverse-direction comparison is detected, but is not yet supported.');
+        throw new ActivityRouteMatchError('The activity appears to follow the loaded route in reverse. Reverse-direction comparison is not yet supported. The loaded route is unchanged and the activity was not attached.');
     if (!isConfidentRouteMatch(aligned.quality))
-        throw Error(`The activity could not be matched confidently to this route (median error ${Math.round(aligned.quality.medianError)} m, 90th percentile ${Math.round(aligned.quality.p90Error)} m, ${Math.round(aligned.quality.within150m)}% within 150 m, ${Math.round(aligned.quality.ambiguousPercent)}% route-position ambiguous).`);
+        throw new ActivityRouteMatchError(`The activity does not match the loaded route closely enough (median error ${Math.round(aligned.quality.medianError)} m, 90th percentile ${Math.round(aligned.quality.p90Error)} m, ${Math.round(aligned.quality.within150m)}% within 150 m, ${Math.round(aligned.quality.ambiguousPercent)}% route-position ambiguous). The loaded route is unchanged and the activity was not attached.`);
     return calculateActivityMovingTime(aligned.points, activityMovingSettings());
 }
 function interpolateRouteTime(distance: number) {
@@ -454,9 +462,9 @@ function renderActivityAnalysis() { if (!activity.length) {
         coveragePercent: (end - start) / (p.at(-1)!.d) * 100,
         qualityText: activityMatchQuality ? `${Math.round(activityMatchQuality.within150m)}% of samples within 150 m; median ${Math.round(activityMatchQuality.medianError)} m, 90th percentile ${Math.round(activityMatchQuality.p90Error)} m, and ${Math.round(activityMatchQuality.ambiguousPercent)}% route-position ambiguous.` : 'Match quality unavailable.',
         guidanceHtml: [...byKind.entries()].filter(([, value]) => value.expected > 60).map(([kind, value]) => { const difference = (value.actual / value.expected - 1) * 100; return `<li><b>${kind[0].toUpperCase() + kind.slice(1)}:</b> ${Math.abs(difference).toFixed(0)}% ${difference > 0 ? 'slower' : 'faster'} than the selected curve.</li>`; }).join('') || '<li>Not enough route coverage for section-level calibration.</li>',
-    }, curveName = escapeHtml(viewModel.curveName); activityPanel.innerHTML = `<div class="prediction-head"><div><p class="eyebrow">Activity versus ${curveName}</p><h2>${signedDuration(viewModel.differenceSeconds)}</h2></div><p>${durationText(viewModel.actualSeconds)} moving versus ${durationText(viewModel.expectedSeconds)} predicted across ${viewModel.coveragePercent.toFixed(0)}% of the route. Positive means slower than predicted.</p></div><div class="activity-stats"><article><b>${durationText(viewModel.elapsedSeconds)}</b><span>Elapsed time</span></article><article><b>${durationText(viewModel.actualSeconds)}</b><span>Moving time</span></article><article><b>${durationText(viewModel.expectedSeconds)}</b><span>Predicted time · ${curveName}</span></article><article><b>${formatPace(viewModel.actualSeconds / (viewModel.distance / 1000))}/km</b><span>Actual average pace</span></article></div><p class="match-quality"><b>Route match:</b> ${viewModel.qualityText}</p><button type="button" id="activity-csv">Download activity comparison CSV</button><canvas id="activity-chart" aria-label="Actual and predicted cumulative moving time">Actual and predicted values are included in the terrain and waypoint tables.</canvas><h3>Actual pace against the curve</h3><canvas id="activity-gradient-chart" aria-label="Actual pace samples against the pace curve">The activity summary and section comparisons provide a text alternative to this chart.</canvas><details class="calibration" open><summary>Calibration indications</summary><p>These observations describe this activity; keep effort level and terrain context in mind before changing a curve.</p><ul>${viewModel.guidanceHtml}</ul></details>`; activityPanel.querySelector<HTMLButtonElement>('#activity-csv')!.onclick = downloadActivityCsv; renderTerrainTable(); renderWaypointSegments(); drawActivityComparison(); drawActivityGradient(); }
+    }, curveName = escapeHtml(viewModel.curveName); activityPanel.innerHTML = `<div class="prediction-head"><div><p class="eyebrow">Activity versus ${curveName}</p><h2>${signedDuration(viewModel.differenceSeconds)}</h2></div><p>${durationText(viewModel.actualSeconds)} moving versus ${durationText(viewModel.expectedSeconds)} predicted across ${viewModel.coveragePercent.toFixed(0)}% of the route. Positive means slower than predicted.</p></div><div class="activity-stats"><article><b>${durationText(viewModel.elapsedSeconds)}</b><span>Elapsed time</span></article><article><b>${durationText(viewModel.actualSeconds)}</b><span>Moving time</span></article><article><b>${durationText(viewModel.expectedSeconds)}</b><span>Predicted time · ${curveName}</span></article><article><b>${formatPace(viewModel.actualSeconds / (viewModel.distance / 1000))}/km</b><span>Actual average pace</span></article></div><p class="match-quality"><b>Route match:</b> ${viewModel.qualityText}</p><p>The main analysis CSV includes this activity comparison.</p><canvas id="activity-chart" aria-label="Actual and predicted cumulative moving time">Actual and predicted values are included in the terrain and waypoint tables.</canvas><h3>Actual pace against the curve</h3><canvas id="activity-gradient-chart" aria-label="Actual pace samples against the pace curve">The activity summary and section comparisons provide a text alternative to this chart.</canvas><details class="calibration" open><summary>Calibration indications</summary><p>These observations describe this activity; keep effort level and terrain context in mind before changing a curve.</p><ul>${viewModel.guidanceHtml}</ul></details>`; renderTerrainTable(); renderWaypointSegments(); drawActivityComparison(); drawActivityGradient(); }
 activityFile.onchange = async () => { const file = activityFile.files?.[0]; if (!file)
-    return; error.textContent = ''; try {
+    return; error.textContent = ''; activityWarning.hidden = true; activityWarning.textContent = ''; try {
     const text = await file.text(), recorded = parseActivityGpx(text), largeActivityWarning = largeTraceGuidance('activity', recorded.length, file.size), useAsRoute = !p.length || !profile.length;
     if (useAsRoute) {
         result.hidden = true;
@@ -488,7 +496,13 @@ catch (problem) {
         renderTerrainTable();
         renderWaypointSegments();
     }
-    error.textContent = problem instanceof Error ? problem.message : 'Could not analyse this activity GPX.';
+    if (problem instanceof ActivityRouteMatchError) {
+        activityWarning.textContent = `Activity not matched: ${problem.message}`;
+        activityWarning.hidden = false;
+        error.textContent = '';
+    }
+    else
+        error.textContent = problem instanceof Error ? problem.message : 'Could not analyse this activity GPX.';
 } };
 const refreshActivity = () => { if (activityFile.files?.[0])
     activityFile.dispatchEvent(new Event('change')); };
@@ -578,22 +592,6 @@ function renderTerrainTable() {
         terrainSummaryRow(summary.byKind.rolling, 'Rolling', '', showPrediction, activityAccessor !== null, false, false),
         terrainSummaryRow(summary.overall, 'All terrain', 'Overall', showPrediction, activityAccessor !== null, true),
     ].join('');
-}
-function downloadActivityCsv() {
-    if (!activity.length || !routePrediction)
-        return;
-    downloadCsv('activity-comparison.csv', buildActivityComparisonCsv({
-        route: p,
-        profile,
-        sections: ms,
-        waypoints: routeWaypoints,
-        activity,
-        prediction: routePrediction,
-        matchQuality: activityMatchQuality,
-        movingSettings: activityMovingSettings(),
-        paceCurveName: activePaceCurve().name,
-        paceCurveId: paceController.selectedCurveId,
-    }));
 }
 function renderWaypointSegments() {
     if (routeWaypoints.length < 2) {
@@ -764,6 +762,7 @@ function downloadAnalysisCsv() {
         paceCurveName: activePaceCurve().name,
         paceCurveId: paceController.selectedCurveId,
         settings,
+        activity: activity.length ? { points: activity, matchQuality: activityMatchQuality } : undefined,
     }));
 }
 $('#csv').textContent = 'Download analysis CSV';

@@ -1,4 +1,4 @@
-import { buildActivityComparisonCsv, buildRouteAnalysisCsv } from '../src/exportData.js';
+import { buildRouteAnalysisCsv } from '../src/exportData.js';
 import type { ActivityPoint } from '../src/activity.js';
 import type { RoutePoint } from '../src/gpx.js';
 import type { PrimaryTerrainSection } from '../src/terrain.js';
@@ -61,25 +61,42 @@ const activity: ActivityPoint[] = route.map((point, index) => ({
     moving: index * 70,
     routeD: point.d,
 }));
-const activityCsv = buildActivityComparisonCsv({
+const unifiedCsv = buildRouteAnalysisCsv({
     route,
-    profile: [100, 110, 120],
+    profileElevations: [100, 110, 120],
     sections,
-    waypoints,
-    activity,
+    totals: { up: 20, down: 0 },
     prediction,
-    matchQuality: {
-        orientation: 'forward', medianError: 2, p90Error: 4, maxError: 5, within150m: 100,
-        progress: 200, ambiguousSamples: 0, ambiguousPercent: 0,
-    },
-    movingSettings: { gapCutoffSeconds: 120, detectStationaryRests: false, minimumMovingSpeedKmh: .5 },
+    sectionPredictionSeconds: [120],
+    predictedTotalSeconds: 120,
+    waypoints,
+    rawPacePoints: [{ grade: 0, pace: '10:00' }, { grade: 10, pace: 'vam:600' }],
+    resolvedPacePoints: [
+        { grade: 0, pace: '10:00', seconds: 600 },
+        { grade: 10, pace: 'vam:600', seconds: 600 },
+    ],
     paceCurveName: 'Test curve',
     paceCurveId: 'test',
+    settings: [
+        ['recording_gap_cutoff_s', 120],
+        ['stationary_rest_detection', false],
+        ['minimum_moving_speed_kmh', .5],
+    ],
+    activity: {
+        points: activity,
+        matchQuality: {
+            orientation: 'forward', medianError: 2, p90Error: 4, maxError: 5, within150m: 100,
+            progress: 200, ambiguousSamples: 0, ambiguousPercent: 0,
+        },
+    },
 });
-equal(activityCsv[0][0], 'record_type', 'activity CSV begins with the shared header');
-equal(activityCsv[1][0], 'summary', 'activity CSV begins its data with a summary');
-equal(activityCsv[1][16], 20, 'activity CSV reports actual minus predicted moving time');
-equal(activityCsv[1][17], 2, 'activity CSV includes route-match quality in the summary');
-ok(activityCsv.some(row => row[0] === 'terrain_subsection'), 'activity CSV includes subsection comparisons');
+const activitySummary = unifiedCsv.find(row => row[0] === 'activity_summary')!;
+equal(unifiedCsv[0][0], 'record_type', 'unified CSV begins with the shared header');
+equal(activitySummary[28], 140, 'unified CSV includes actual moving time');
+equal(activitySummary[32], 20, 'unified CSV reports actual minus predicted moving time');
+equal(activitySummary[33], 2, 'unified CSV includes route-match quality in the activity summary');
+equal(activitySummary[38], 140, 'unified CSV includes recorded elapsed time in the activity summary');
+equal(unifiedCsv.find(row => row[0] === 'terrain_subsection')?.[28], 140, 'unified CSV adds actual values to subsection rows');
+equal(unifiedCsv.find(row => row[0] === 'waypoint_segment')?.[32], 20, 'unified CSV adds differences to waypoint-segment rows');
 
 console.log('Export-data regression tests passed.');
