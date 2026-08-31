@@ -520,7 +520,7 @@
 
 .activity-stats {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin: 18px 0;
 }
@@ -541,6 +541,17 @@
 .calibration p {
   color: var(--muted);
   font-size: .85rem;
+}
+
+.activity-comparison-stat {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.activity-comparison-stat > div + div {
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
 }
 
 #activity-chart {
@@ -592,7 +603,7 @@
   }
 
   .activity-stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: 1fr;
   }
 }
 
