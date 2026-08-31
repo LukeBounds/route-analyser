@@ -129,6 +129,19 @@ export function smoothElevations(points: TerrainPoint[], smoothingDistance: numb
     });
 }
 
+export function elevationGainLoss(elevations: number[], startIndex = 0, endIndex = elevations.length - 1) {
+    let up = 0;
+    let down = 0;
+    for (let index = startIndex + 1; index <= endIndex; index++) {
+        const change = elevations[index] - elevations[index - 1];
+        if (change > 0)
+            up += change;
+        else
+            down -= change;
+    }
+    return { up, down };
+}
+
 function internalRolling(
     points: TerrainPoint[],
     kinds: TerrainKind[],
@@ -407,16 +420,7 @@ export function analyseTerrain(points: TerrainPoint[], settings: TerrainSettings
     terrainSections = mergeShortSections(points, terrainSections, settings.minimumSection);
     terrainSections = revalidateFlats(points, rawElevations, terrainSections, settings.gradeThreshold);
 
-    const totals = rawElevations.slice(1).reduce((result, elevation, index) => {
-        const change = elevation - rawElevations[index];
-        if (change > 0) {
-            result.up += change;
-        }
-        else {
-            result.down -= change;
-        }
-        return result;
-    }, { up: 0, down: 0 });
+    const totals = elevationGainLoss(rawElevations);
 
     return {
         profile,

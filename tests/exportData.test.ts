@@ -29,6 +29,7 @@ const prediction = { cumulative: [0, 60, 120], seconds: [0, 60, 60] };
 
 const routeCsv = buildRouteAnalysisCsv({
     route,
+    profileElevations: [100, 110, 120],
     sections,
     totals: { up: 20, down: 0 },
     prediction,
@@ -49,6 +50,10 @@ ok(routeCsv.some(row => row[0] === 'terrain_section'), 'route CSV contains prima
 ok(routeCsv.some(row => row[0] === 'terrain_subsection'), 'route CSV contains terrain subsection rows');
 ok(routeCsv.some(row => row[0] === 'waypoint_segment'), 'route CSV contains waypoint segment rows');
 equal(routeCsv.find(row => row[24] === 'selected_pace_curve_name')?.[25], 'Test curve', 'route CSV includes selected curve metadata');
+equal(routeCsv.find(row => row[24] === 'raw_elevation_gain_m')?.[25], 20, 'route CSV labels point-to-point gain as raw elevation data');
+equal(routeCsv.find(row => row[24] === 'raw_elevation_loss_m')?.[25], 0, 'route CSV labels point-to-point loss as raw elevation data');
+equal(routeCsv.find(row => row[24] === 'profile_total_elevation_gain_m')?.[25], 20, 'route CSV includes profile point-to-point elevation gain');
+equal(routeCsv.find(row => row[0] === 'terrain_subsection')?.[26], 20, 'route CSV includes subsection profile elevation gain');
 
 const activity: ActivityPoint[] = route.map((point, index) => ({
     ...point,

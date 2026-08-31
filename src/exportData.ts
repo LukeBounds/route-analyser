@@ -8,7 +8,7 @@ import {
 } from './activity.js';
 import type { RoutePoint } from './gpx.js';
 import { createPaceInterpolator, type ResolvedPaceCurvePoint, type RoutePacePrediction } from './pace.js';
-import type { PrimaryTerrainSection } from './terrain.js';
+import { elevationGainLoss, type PrimaryTerrainSection } from './terrain.js';
 import { waypointSegmentGeometry, type SnappedWaypoint } from './waypoints.js';
 
 type SparseCell = [index: number, value: CsvValue];
@@ -137,11 +137,12 @@ export const routeAnalysisCsvHeader = [
     'cumulative_time_s', 'segment_average_time_s', 'segment_average_pace_s_per_km',
     'segment_average_vam_m_per_h', 'segment_average_cumulative_s', 'local_gradient_time_s',
     'local_gradient_pace_s_per_km', 'local_gradient_vam_m_per_h', 'local_gradient_cumulative_s',
-    'setting', 'value',
+    'setting', 'value', 'profile_elevation_gain_m', 'profile_elevation_loss_m',
 ];
 
 export function buildRouteAnalysisCsv(options: {
     route: RoutePoint[];
+    profileElevations: number[];
     sections: PrimaryTerrainSection[];
     totals: { up: number; down: number };
     prediction: RoutePacePrediction | null;
@@ -155,15 +156,17 @@ export function buildRouteAnalysisCsv(options: {
     settings: Array<[name: string, value: CsvValue]>;
 }): CsvValue[][] {
     const {
-        route, sections, totals, prediction, sectionPredictionSeconds, predictedTotalSeconds, waypoints,
+        route, profileElevations, sections, totals, prediction, sectionPredictionSeconds, predictedTotalSeconds, waypoints,
         rawPacePoints, resolvedPacePoints, paceCurveName, paceCurveId, settings,
     } = options;
     const rows: CsvValue[][] = [];
     const add = (cells: SparseCell[]) => rows.push(sparseRow(routeAnalysisCsvHeader.length, cells));
     const exportSettings: Array<[string, CsvValue]> = [
         ['route_distance_m', route.at(-1)?.d ?? 0],
-        ['total_ascent_m', totals.up],
-        ['total_descent_m', totals.down],
+        ['raw_elevation_gain_m', totals.up],
+        ['raw_elevation_loss_m', totals.down],
+        ['profile_total_elevation_gain_m', elevationGainLoss(profileElevations).up],
+        ['profile_total_elevation_loss_m', elevationGainLoss(profileElevations).down],
         ['predicted_route_time_s', predictedTotalSeconds ?? ''],
         ['selected_pace_curve_name', paceCurveName],
         ['selected_pace_curve_id', paceCurveId],
@@ -177,6 +180,7 @@ export function buildRouteAnalysisCsv(options: {
         const end = route[section.b];
         const distance = end.d - start.d;
         const change = end.ele! - start.ele!;
+        const profileElevation = elevationGainLoss(profileElevations, section.a, section.b);
         const seconds = prediction
             ? prediction.cumulative[section.b] - prediction.cumulative[section.a]
             : sectionPredictionSeconds?.[index];
@@ -188,12 +192,14 @@ export function buildRouteAnalysisCsv(options: {
             [12, seconds], [13, seconds === undefined || distance <= 0 ? undefined : seconds / (distance / 1000)],
             [14, seconds === undefined ? undefined : vamValue(change, seconds)],
             [15, seconds === undefined ? undefined : cumulative],
+            [26, profileElevation.up], [27, profileElevation.down],
         ]);
         section.c.forEach((child, childIndex) => {
             const childStart = route[child.a];
             const childEnd = route[child.b];
             const childDistance = childEnd.d - childStart.d;
             const childChange = childEnd.ele! - childStart.ele!;
+            const childProfileElevation = elevationGainLoss(profileElevations, child.a, child.b);
             const childSeconds = prediction ? prediction.cumulative[child.b] - prediction.cumulative[child.a] : undefined;
             add([
                 [0, 'terrain_subsection'], [1, `${index + 1}.${childIndex + 1}`], [2, index + 1], [3, child.k],
@@ -202,6 +208,7 @@ export function buildRouteAnalysisCsv(options: {
                 [13, childSeconds === undefined || childDistance <= 0 ? undefined : childSeconds / (childDistance / 1000)],
                 [14, childSeconds === undefined ? undefined : vamValue(childChange, childSeconds)],
                 [15, prediction?.cumulative[child.b]],
+                [26, childProfileElevation.up], [27, childProfileElevation.down],
             ]);
         });
     });

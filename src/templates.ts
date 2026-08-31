@@ -19,7 +19,7 @@ export function routePageTemplate() {
                     <label>Minimum section <output id="minOut">150 m</output><input id="min" type="range" min="25" max="1000" step="25" value="150"></label>
                     <label>Flat/rolling bridge <output id="bridgeOut">300 m</output><input id="bridge" type="range" min="0" max="1500" step="25" value="300"></label>
                 </div>
-                <details><summary>How settings work</summary><ul><li><b>Grade threshold</b> is the sustained gradient classified as climbing or descending.</li><li><b>Rolling window</b> smooths the profile and sets the maximum span for a rolling section with internal uphill and downhill movements.</li><li><b>Minimum section</b> merges small fragments into their adjacent section.</li><li><b>Flat/rolling bridge</b> optionally joins same-direction climbs/descents across a short flat or rolling interruption that is also small compared with both adjacent sections.</li><li><b>Total ascent and descent</b> use the original terrain profile so small route undulations are retained.</li></ul></details>
+                <details><summary>How settings work</summary><ul><li><b>Grade threshold</b> is the sustained gradient classified as climbing or descending.</li><li><b>Rolling window</b> smooths the profile and sets the maximum span for a rolling section with internal uphill and downhill movements.</li><li><b>Minimum section</b> merges small fragments into their adjacent section.</li><li><b>Flat/rolling bridge</b> optionally joins same-direction climbs/descents across a short flat or rolling interruption that is also small compared with both adjacent sections.</li><li><b>Raw elevation gain and loss</b> use the original point-to-point terrain profile. Terrain-category totals use the displayed leaf-level subsections.</li></ul></details>
                 <p id="status">Choose a GPX file to begin.</p>
                 <p id="error" role="alert"></p>
                 <div id="fill" hidden><p>This GPX has no complete elevation profile. Fill it with full-detail Mapterhorn terrain tiles; only tiles crossed by the route are requested. <a href="https://mapterhorn.com/attribution/" target="_blank" rel="noreferrer">Attribution</a>.</p><button id="fillBtn">Fill terrain elevation</button></div>
@@ -30,7 +30,7 @@ export function routePageTemplate() {
                 <div id="plot-range"><label>View from <input id="view-start" type="number" min="0" step="0.01"> km</label><label>to <input id="view-end" type="number" min="0" step="0.01"> km</label><button id="view-full" type="button">Full route</button><span>Click a table row to focus its primary section.</span></div>
                 <div class="legend"><span class="climb">● Climb</span><span class="descent">● Descent</span><span class="flat">● Flat</span><span class="rolling">● Rolling</span></div>
                 <canvas id="chart" aria-label="Terrain colour coded elevation profile">The terrain sections and their numerical values are available in the table below.</canvas>
-                <div class="table"><table><thead></thead><tbody id="rows"></tbody></table></div>
+                <div class="table"><table><thead></thead><tbody id="rows"></tbody><tfoot id="section-summary"></tfoot></table></div>
             </section>
         </div>
     </main>`;

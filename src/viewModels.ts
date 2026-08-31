@@ -1,5 +1,5 @@
 import type { RoutePacePrediction } from './pace.js';
-import type { PrimaryTerrainSection, TerrainKind, TerrainSection } from './terrain.js';
+import { elevationGainLoss, type PrimaryTerrainSection, type TerrainKind, type TerrainSection } from './terrain.js';
 import { waypointSegmentGeometry } from './waypoints.js';
 
 export type ViewPoint = {
@@ -40,9 +40,27 @@ export type TerrainRowViewModel = {
     endDistance: number;
     distance: number;
     elevationChange: number;
+    profileElevationGain: number;
+    profileElevationLoss: number;
     averageGrade: number | null;
     predicted: PaceMetricsViewModel | null;
     actual: ActualMetricsViewModel | null;
+};
+
+export type TerrainAggregateViewModel = {
+    distance: number;
+    elevationChange: number;
+    profileElevationGain: number;
+    profileElevationLoss: number;
+    averageGrade: number | null;
+    predictedSeconds: number | null;
+    actualSeconds: number | null;
+    actualDifferenceSeconds: number | null;
+};
+
+export type TerrainSummaryViewModel = {
+    byKind: Record<TerrainKind, TerrainAggregateViewModel>;
+    overall: TerrainAggregateViewModel;
 };
 
 export type RouteSummaryItemViewModel = {
@@ -53,8 +71,12 @@ export type RouteSummaryItemViewModel = {
 
 export type RouteViewModel = {
     terrain: RouteSummaryItemViewModel[];
-    totalAscent: number;
-    totalDescent: number;
+    profileElevationGain: number;
+    profileElevationLoss: number;
+    sectionElevationGain: number;
+    sectionElevationLoss: number;
+    rawElevationGain: number;
+    rawElevationLoss: number;
     predictedSeconds: number | null;
 };
 
@@ -96,11 +118,15 @@ export type WaypointDirectionSummaryViewModel = {
     averageGrade: number | null;
     segmentAverageSeconds: number;
     localGradientSeconds: number;
+    actualSeconds: number | null;
 };
+
+export type WaypointOverallSummaryViewModel = Omit<WaypointDirectionSummaryViewModel, 'direction' | 'actualSeconds'>;
 
 export type WaypointSegmentsViewModel = {
     rows: WaypointSegmentRowViewModel[];
     summaries: [WaypointDirectionSummaryViewModel, WaypointDirectionSummaryViewModel];
+    overall: WaypointOverallSummaryViewModel;
     segmentAverageTotalSeconds: number;
     localGradientTotalSeconds: number;
 };
@@ -137,6 +163,7 @@ function actualMetrics(
 
 function terrainRow(
     points: ViewPoint[],
+    profileElevations: number[],
     section: TerrainSection,
     number: string,
     primaryIndex: number,
@@ -149,6 +176,7 @@ function terrainRow(
     const endDistance = points[section.b].d;
     const distance = endDistance - startDistance;
     const elevationChange = elevation(points, section.b) - elevation(points, section.a);
+    const profileElevation = elevationGainLoss(profileElevations, section.a, section.b);
     const predictedSeconds = prediction
         ? prediction.cumulative[section.b] - prediction.cumulative[section.a]
         : null;
@@ -164,6 +192,8 @@ function terrainRow(
         endDistance,
         distance,
         elevationChange,
+        profileElevationGain: profileElevation.up,
+        profileElevationLoss: profileElevation.down,
         averageGrade: distance > 0 ? elevationChange / distance * 100 : null,
         predicted: predictedSeconds === null || !prediction
             ? null
@@ -179,10 +209,13 @@ export function createTerrainRows(
     sections: PrimaryTerrainSection[],
     prediction?: RoutePacePrediction | null,
     activity?: ActivityViewAccessor | null,
+    profileElevations?: number[] | null,
 ): TerrainRowViewModel[] {
+    const elevations = profileElevations ?? points.map((_, index) => elevation(points, index));
     return sections.flatMap((section, primaryIndex) => {
         const parent = terrainRow(
             points,
+            elevations,
             section,
             String(primaryIndex + 1),
             primaryIndex,
@@ -194,6 +227,7 @@ export function createTerrainRows(
         const children = section.k === 'climb' || section.k === 'descent'
             ? section.c.map((child, childIndex) => terrainRow(
                 points,
+                elevations,
                 child,
                 `${primaryIndex + 1}.${childIndex + 1}`,
                 primaryIndex,
@@ -207,16 +241,59 @@ export function createTerrainRows(
     });
 }
 
+function aggregateTerrainRows(rows: TerrainRowViewModel[]): TerrainAggregateViewModel {
+    const distance = rows.reduce((total, row) => total + row.distance, 0);
+    const elevationChange = rows.reduce((total, row) => total + row.elevationChange, 0);
+    const profileElevationGain = rows.reduce((total, row) => total + row.profileElevationGain, 0);
+    const profileElevationLoss = rows.reduce((total, row) => total + row.profileElevationLoss, 0);
+    const completePrediction = rows.length > 0 && rows.every(row => row.predicted !== null);
+    const completeActivity = rows.length > 0 && rows.every(row => row.actual !== null);
+    return {
+        distance,
+        elevationChange,
+        profileElevationGain,
+        profileElevationLoss,
+        averageGrade: distance > 0 ? elevationChange / distance * 100 : null,
+        predictedSeconds: completePrediction ? rows.reduce((total, row) => total + row.predicted!.seconds, 0) : null,
+        actualSeconds: completeActivity ? rows.reduce((total, row) => total + row.actual!.seconds, 0) : null,
+        actualDifferenceSeconds: completeActivity ? rows.reduce((total, row) => total + row.actual!.differenceSeconds, 0) : null,
+    };
+}
+
+export function createTerrainSummary(rows: TerrainRowViewModel[]): TerrainSummaryViewModel {
+    const leafRows = rows.filter(row => row.child || !row.hasChildren);
+    return {
+        byKind: {
+            climb: aggregateTerrainRows(leafRows.filter(row => row.kind === 'climb')),
+            descent: aggregateTerrainRows(leafRows.filter(row => row.kind === 'descent')),
+            flat: aggregateTerrainRows(leafRows.filter(row => row.kind === 'flat')),
+            rolling: aggregateTerrainRows(leafRows.filter(row => row.kind === 'rolling')),
+        },
+        overall: aggregateTerrainRows(leafRows),
+    };
+}
+
 export function createRouteViewModel(
     points: ViewPoint[],
-    sections: TerrainSection[],
+    sections: PrimaryTerrainSection[],
     totals: { up: number; down: number },
     predictedSeconds: number | null,
+    profileElevations?: number[] | null,
 ): RouteViewModel {
-    const terrain = (['climb', 'descent', 'flat', 'rolling'] as TerrainKind[]).map(kind => {
+    const leafSections = sections.flatMap(section => section.c.length ? section.c : [section]);
+    const profileTotals = elevationGainLoss(profileElevations ?? points.map((_, index) => elevation(points, index)));
+    const sectionTotals = leafSections.reduce((total, section) => {
+        const change = elevation(points, section.b) - elevation(points, section.a);
+        if (change > 0)
+            total.up += change;
+        else
+            total.down -= change;
+        return total;
+    }, { up: 0, down: 0 });
+    const terrain = (['climb', 'descent', 'rolling', 'flat'] as TerrainKind[]).map(kind => {
         let distance = 0;
         let elevationChange = 0;
-        sections.filter(section => section.k === kind).forEach(section => {
+        leafSections.filter(section => section.k === kind).forEach(section => {
             const sectionDistance = points[section.b].d - points[section.a].d;
             distance += sectionDistance;
             elevationChange += elevation(points, section.b) - elevation(points, section.a);
@@ -231,8 +308,12 @@ export function createRouteViewModel(
     });
     return {
         terrain,
-        totalAscent: totals.up,
-        totalDescent: totals.down,
+        profileElevationGain: profileTotals.up,
+        profileElevationLoss: profileTotals.down,
+        sectionElevationGain: sectionTotals.up,
+        sectionElevationLoss: sectionTotals.down,
+        rawElevationGain: totals.up,
+        rawElevationLoss: totals.down,
         predictedSeconds,
     };
 }
@@ -247,8 +328,8 @@ export function createWaypointSegmentRows(
     let segmentAverageCumulative = 0;
     let localGradientCumulative = 0;
     const summaries: WaypointSegmentsViewModel['summaries'] = [
-        { direction: 'ascent', distance: 0, elevationChange: 0, averageGrade: null, segmentAverageSeconds: 0, localGradientSeconds: 0 },
-        { direction: 'descent', distance: 0, elevationChange: 0, averageGrade: null, segmentAverageSeconds: 0, localGradientSeconds: 0 },
+        { direction: 'ascent', distance: 0, elevationChange: 0, averageGrade: null, segmentAverageSeconds: 0, localGradientSeconds: 0, actualSeconds: null },
+        { direction: 'descent', distance: 0, elevationChange: 0, averageGrade: null, segmentAverageSeconds: 0, localGradientSeconds: 0, actualSeconds: null },
     ];
 
     const rows = waypoints.slice(1).flatMap((end, position) => {
@@ -285,6 +366,11 @@ export function createWaypointSegmentRows(
         const startDistance = points[start.index].d;
         const endDistance = points[end.index].d;
         const comparison = activity?.compare(startDistance, endDistance) ?? null;
+        const actual = activity
+            ? actualMetrics(geometry.distance, geometry.elevationChange, comparison, activity.cumulativeAt(endDistance))
+            : null;
+        if (direction && actual)
+            direction.actualSeconds = (direction.actualSeconds ?? 0) + actual.seconds;
         return [{
             startName: start.name,
             endName: end.name,
@@ -295,9 +381,7 @@ export function createWaypointSegmentRows(
             averageGrade: geometry.averageGrade,
             segmentAverage,
             localGradient,
-            actual: activity
-                ? actualMetrics(geometry.distance, geometry.elevationChange, comparison, activity.cumulativeAt(endDistance))
-                : null,
+            actual,
         }];
     });
 
@@ -306,10 +390,19 @@ export function createWaypointSegmentRows(
             ? summary.elevationChange / summary.distance * 100
             : null;
     });
+    const overallDistance = rows.reduce((total, row) => total + row.distance, 0);
+    const overallElevationChange = rows.reduce((total, row) => total + row.elevationChange, 0);
 
     return {
         rows,
         summaries,
+        overall: {
+            distance: overallDistance,
+            elevationChange: overallElevationChange,
+            averageGrade: overallDistance > 0 ? overallElevationChange / overallDistance * 100 : null,
+            segmentAverageSeconds: segmentAverageCumulative,
+            localGradientSeconds: localGradientCumulative,
+        },
         segmentAverageTotalSeconds: segmentAverageCumulative,
         localGradientTotalSeconds: localGradientCumulative,
     };
