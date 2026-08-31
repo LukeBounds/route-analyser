@@ -6,6 +6,7 @@ test('bundled route analysis and pace state survive page navigation', async ({ p
 
     await page.goto('/');
     await expect(page.getByRole('heading', { level: 1, name: 'Terrain analyser' })).toBeVisible();
+    await expect(page.locator('#gradient-window')).toHaveValue('50');
 
     await page.getByRole('combobox', { name: 'Example route' }).selectOption('bob-graham-lukes-version');
     await page.getByRole('button', { name: 'Load example' }).click();

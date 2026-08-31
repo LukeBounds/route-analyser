@@ -51,6 +51,14 @@ const prediction = predictRoutePace(
 close(prediction.cumulative.at(-1)!, 600, 'route prediction applies the interpolated pace to every route interval');
 equal(prediction.seconds.length, predictionPoints.length, 'route prediction retains one interval value per route point');
 
+const sparsePrediction = predictRoutePace(
+    [{ d: 0, ele: 0 }, { d: 100, ele: 10 }],
+    [0, 10],
+    resolvePaceCurve([{ grade: 0, pace: '5:00' }, { grade: 10, pace: '10:00' }]),
+    50,
+);
+close(sparsePrediction.cumulative.at(-1)!, 60, 'pace prediction interpolates a short gradient window within a sparse GPX interval');
+
 const validBackup = parseValidatedPaceCurveBackup({
     format: 'route-analyser-pace-curves',
     version: 1,

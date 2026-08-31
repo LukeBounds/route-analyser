@@ -86,6 +86,7 @@ export function predictRoutePace(
     points: TerrainPoint[],
     profile: number[],
     curve: ResolvedPaceCurvePoint[],
+    localGradientWindow = 50,
 ): RoutePacePrediction {
     if (profile.length !== points.length) {
         throw new Error('Route pace prediction needs one profile elevation per route point.');
@@ -101,7 +102,7 @@ export function predictRoutePace(
             continue;
         }
         const midpoint = (points[index].d + points[index - 1].d) / 2;
-        const grade = localGradeAtDistance(points, profile, midpoint);
+        const grade = localGradeAtDistance(points, profile, midpoint, localGradientWindow);
         const segmentSeconds = distance / 1000 * paceAt(grade);
         seconds.push(segmentSeconds);
         cumulative.push(cumulative[index - 1] + segmentSeconds);

@@ -23,6 +23,7 @@ export interface PrimaryTerrainSection {
 
 export interface TerrainSettings {
     gradeThreshold: number;
+    localGradientWindow: number;
     rollingWindow: number;
     minimumSection: number;
     flatRollingBridge: number;
@@ -51,36 +52,40 @@ function elevations(points: TerrainPoint[]): number[] {
     });
 }
 
-function locate(points: TerrainPoint[], distance: number): number {
+function profileElevationAtDistance(points: TerrainPoint[], profile: number[], distance: number) {
     let low = 0;
-    let high = points.length - 1;
+    let high = points.length;
     while (low < high) {
         const middle = (low + high) >> 1;
-        if (points[middle].d < distance) {
+        if (points[middle].d <= distance)
             low = middle + 1;
-        }
-        else {
+        else
             high = middle;
-        }
     }
-    return low;
+    const lower = Math.max(0, low - 1);
+    const upper = Math.min(points.length - 1, low);
+    if (lower === upper || points[upper].d <= points[lower].d)
+        return profile[lower];
+    const fraction = (distance - points[lower].d) / (points[upper].d - points[lower].d);
+    return profile[lower] + (profile[upper] - profile[lower]) * Math.max(0, Math.min(1, fraction));
 }
 
 export function localGradeAtDistance(
     points: TerrainPoint[],
     profile: number[],
     distance: number,
-    window = 100,
+    window = 50,
 ): number {
-    if (!points.length || profile.length !== points.length) {
+    if (!points.length || profile.length !== points.length || window <= 0) {
         return 0;
     }
-    const first = locate(points, Math.max(0, distance - window / 2));
-    const last = locate(points, Math.min(points.at(-1)!.d, distance + window / 2));
-    const profileDistance = points[last].d - points[first].d;
-    return first === last || profileDistance <= 0
+    const startDistance = Math.max(points[0].d, distance - window / 2);
+    const endDistance = Math.min(points.at(-1)!.d, distance + window / 2);
+    const profileDistance = endDistance - startDistance;
+    return profileDistance <= 0
         ? 0
-        : (profile[last] - profile[first]) / profileDistance * 100;
+        : (profileElevationAtDistance(points, profile, endDistance)
+            - profileElevationAtDistance(points, profile, startDistance)) / profileDistance * 100;
 }
 
 function sectionLength(points: TerrainPoint[], section: TerrainSection): number {
@@ -236,6 +241,7 @@ function gradientSubsections(
     rawElevations: number[],
     parent: PrimaryTerrainSection,
     profile: number[],
+    localGradientWindow: number,
     threshold: number,
     minimumLength: number,
 ): TerrainSection[] {
@@ -249,6 +255,7 @@ function gradientSubsections(
                 rawElevations,
                 { k: source.k, a: source.a, b: source.b, c: [source] },
                 profile,
+                localGradientWindow,
                 threshold,
                 minimumLength,
             );
@@ -262,7 +269,8 @@ function gradientSubsections(
     }
 
     const band = (index: number) => {
-        const grade = localGradeAtDistance(points, profile, points[index].d);
+        const midpoint = (points[index].d + points[index + 1].d) / 2;
+        const grade = localGradeAtDistance(points, profile, midpoint, localGradientWindow);
         const amount = Math.abs(grade);
         if (amount < threshold) {
             return { kind: 'rolling' as TerrainKind, label: 'sub-rolling' };
@@ -386,6 +394,7 @@ function primarySections(
             rawElevations,
             parent,
             profile,
+            settings.localGradientWindow,
             settings.gradeThreshold,
             settings.minimumSection,
         );
@@ -401,8 +410,9 @@ export function analyseTerrain(points: TerrainPoint[], settings: TerrainSettings
     }
     const rawElevations = elevations(points);
     const profile = smoothElevations(points, settings.profileSmoothing);
-    const base = points.slice(0, -1).map((point): TerrainKind => {
-        const grade = localGradeAtDistance(points, profile, point.d);
+    const base = points.slice(0, -1).map((point, index): TerrainKind => {
+        const midpoint = (point.d + points[index + 1].d) / 2;
+        const grade = localGradeAtDistance(points, profile, midpoint, settings.localGradientWindow);
         return grade >= settings.gradeThreshold
             ? 'climb'
             : grade <= -settings.gradeThreshold

@@ -20,6 +20,7 @@ function close(actual: number, expected: number, message: string): void {
 
 const settings = (overrides: Partial<TerrainSettings> = {}): TerrainSettings => ({
     gradeThreshold: 2,
+    localGradientWindow: 50,
     rollingWindow: 150,
     minimumSection: 0,
     flatRollingBridge: 0,
@@ -42,13 +43,22 @@ equal(climb.primarySections[0].c[0].label, 'moderate sub-climb', 'a five-percent
 equal(
     localGradeAtDistance(points([0, 200, 400], [0, 10, 20]), [0, 10, 20], 200),
     5,
-    'the shared 100 m local-gradient calculation preserves sparse-route behaviour',
+    'the shared local-gradient calculation preserves sparse-route behaviour',
 );
 equal(
     localGradeAtDistance(points([0, 0, 100], [0, 1, 6]), [0, 1, 6], 0),
-    6,
+    5,
     'the shared local-gradient calculation safely spans duplicate-distance points',
 );
+equal(
+    localGradeAtDistance(points([0, 100], [0, 10]), [0, 10], 50, 50),
+    10,
+    'a gradient window within one sparse GPX interval uses interpolated profile boundaries',
+);
+
+const sharpSummit = points([0, 25, 50, 75, 100], [0, 5, 10, 5, 0]);
+close(localGradeAtDistance(sharpSummit, [0, 5, 10, 5, 0], 25, 50), 20, 'a 50 m gradient window preserves the sharp approach to a summit');
+close(localGradeAtDistance(sharpSummit, [0, 5, 10, 5, 0], 25, 100), 100 / 15, 'a longer gradient window softens a summit transition');
 
 const descent = analyseTerrain(points([0, 200, 400], [20, 10, 0]), settings());
 equal(descent.sections[0].k, 'descent', 'a sustained negative grade is a descent');

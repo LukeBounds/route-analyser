@@ -212,19 +212,24 @@ counterControl.className = 'checkbox-control';
 counterControl.innerHTML = `<input id="counter-bridge" type="checkbox" checked> Bridge short counter-slopes`;
 const counterLengthControl = document.createElement('label');
 counterLengthControl.innerHTML = `Counter-slope bridge <output id="counterBridgeOut">250 m</output><input id="counter-bridge-length" type="range" min="0" max="1000" step="25" value="250">`;
+const gradientWindowControl = document.createElement('label');
+gradientWindowControl.innerHTML = `Local gradient window <output id="gradientWindowOut">50 m</output><input id="gradient-window" type="range" min="25" max="200" step="25" value="50">`;
 const smoothingControl = document.createElement('label');
 smoothingControl.innerHTML = `Profile smoothing <output id="smoothingOut">50 m</output><input id="smoothing" type="range" min="0" max="300" step="10" value="50">`;
-$('.controls').append(counterControl, counterLengthControl, smoothingControl);
-const counterBridge = $('#counter-bridge') as HTMLInputElement, counterBridgeLength = $('#counter-bridge-length') as HTMLInputElement, profileSmoothing = $('#smoothing') as HTMLInputElement;
+$('.controls').append(counterControl, counterLengthControl, gradientWindowControl, smoothingControl);
+const counterBridge = $('#counter-bridge') as HTMLInputElement, counterBridgeLength = $('#counter-bridge-length') as HTMLInputElement, localGradientWindow = $('#gradient-window') as HTMLInputElement, profileSmoothing = $('#smoothing') as HTMLInputElement;
 counterBridge.onchange = () => { if (p.length && p.every(x => x.ele !== null))
     analyse(); };
 counterBridgeLength.oninput = () => { $('#counterBridgeOut').textContent = `${counterBridgeLength.value} m`; if (p.length && p.every(x => x.ele !== null))
     analyse(); };
 profileSmoothing.oninput = () => { $('#smoothingOut').textContent = `${profileSmoothing.value} m`; if (p.length && p.every(x => x.ele !== null))
     analyse(); };
+localGradientWindow.oninput = () => { $('#gradientWindowOut').textContent = `${localGradientWindow.value} m`; if (p.length && p.every(x => x.ele !== null))
+    analyse(); };
 const settingsExplanation = document.querySelector('details ul')!;
 settingsExplanation.children[1].innerHTML = '<b>Rolling window</b> sets the maximum span considered at one time when detecting internally alternating uphill and downhill terrain. Overlapping rolling spans may combine into a longer rolling section.';
 settingsExplanation.children[4].innerHTML = '<b>Raw elevation gain and loss</b> sum every change in the unsmoothed point-to-point elevation profile, so small undulations—and any elevation noise—are retained. Terrain-category totals use the displayed leaf-level subsections instead.';
+settingsExplanation.children[0].insertAdjacentHTML('afterend', '<li><b>Local gradient window</b> sets the distance used to measure local slope for terrain classification, profile gradients and pace prediction. Shorter values preserve sharper transitions but are more sensitive to elevation noise.</li>');
 settingsExplanation.insertAdjacentHTML('beforeend', '<li><b>Profile smoothing</b> averages elevations over the selected distance before plotting and classifying terrain. Lower values preserve shorter features but may reveal more elevation noise. It does not affect raw elevation gain or loss.</li><li><b>Bridge short counter-slopes</b> keeps a sustained climb or descent together across a short interruption in the opposite direction, subject to its separate distance and reversal limits.</li>');
 const counterReversalControl = document.createElement('label');
 counterReversalControl.innerHTML = `Counter-slope reversal <output id="counterReversalOut">5%</output><input id="counter-reversal" type="range" min="0" max="20" step=".5" value="5">`;
@@ -234,7 +239,7 @@ counterReversal.oninput = () => { $('#counterReversalOut').textContent = `${coun
     analyse(); };
 settingsExplanation.insertAdjacentHTML('beforeend', '<li><b>Counter-slope reversal</b> allows a short opposing rise/fall when it is no more than this percentage of the combined elevation change in the neighbouring sections.</li>');
 const criteria = document.createElement('details');
-criteria.innerHTML = `<summary>How sections are decided</summary><h3>Primary sections</h3><ul><li>Local slope is measured over roughly 100 m, after elevation smoothing at the selected Profile smoothing distance.</li><li>It is a climb or descent at or beyond the grade threshold; otherwise it starts as flat.</li><li>Nearby uphill and downhill movements become rolling when a span within the rolling window contains both directions and has little net change. Overlapping spans may combine into a longer rolling section.</li><li>Fragments shorter than Minimum section are absorbed into a neighbour.</li><li>Same-direction primary sections may be joined across a short flat/rolling bridge or an enabled short counter-slope. A flat/rolling bridge must be no more than 25% of either adjoining section.</li></ul><h3>Sub-sections</h3><ul><li>Local gradients below the grade threshold become sub-rolling. At or above the threshold, gentle is below threshold + 3%, moderate is below threshold + 7%, and steep is at or above threshold + 7%.</li><li>A band change must persist for at least Minimum section before it becomes a new sub-section.</li><li>Each child’s displayed elevation change and label use its own unsmoothed end-to-end elevation change. Unsmoothed means the elevations supplied by the GPX or filled from Mapterhorn. Opposite-direction children are marked local counter-slope or bridged counter-slope.</li></ul>`;
+criteria.innerHTML = `<summary>How sections are decided</summary><h3>Primary sections</h3><ul><li>Local slope is measured over the selected Local gradient window, after elevation smoothing at the selected Profile smoothing distance.</li><li>It is a climb or descent at or beyond the grade threshold; otherwise it starts as flat.</li><li>Nearby uphill and downhill movements become rolling when a span within the rolling window contains both directions and has little net change. Overlapping spans may combine into a longer rolling section.</li><li>Fragments shorter than Minimum section are absorbed into a neighbour.</li><li>Same-direction primary sections may be joined across a short flat/rolling bridge or an enabled short counter-slope. A flat/rolling bridge must be no more than 25% of either adjoining section.</li></ul><h3>Sub-sections</h3><ul><li>Local gradients below the grade threshold become sub-rolling. At or above the threshold, gentle is below threshold + 3%, moderate is below threshold + 7%, and steep is at or above threshold + 7%.</li><li>A band change must persist for at least Minimum section before it becomes a new sub-section.</li><li>Each child’s displayed elevation change and label use its own unsmoothed end-to-end elevation change. Unsmoothed means the elevations supplied by the GPX or filled from Mapterhorn. Opposite-direction children are marked local counter-slope or bridged counter-slope.</li></ul>`;
 document.querySelector('details')!.insertAdjacentElement('afterend', criteria);
 criteria.querySelector('ul')!.insertAdjacentHTML('beforeend', '<li>A counter-slope bridge must meet its distance limit and have a reversal no greater than the Counter-slope reversal percentage of the adjoining sections’ combined elevation change. Flat/rolling bridges still use the 25% distance rule.</li>');
 criteria.querySelectorAll('ul')[1].insertAdjacentHTML('beforeend', '<li><b>Why a local counter-slope is not necessarily a primary section:</b> the parent direction comes from the smoothed local slope, then short primary fragments are merged. A child is labelled from its own unsmoothed end-to-end elevation change afterwards. So a small uphill can appear within a descent without ever becoming a standalone primary climb. The counter-slope bridge limits apply only when the primary analysis produced two same-direction sections separated by an opposite-direction section.</li>');
@@ -269,7 +274,7 @@ exampleRouteButton.onclick = async () => {
         exampleRouteButton.disabled = false;
     }
 };
-settingsControls.replaceChildren(settingsGroup('Route', routeFile, exampleRouteControl), settingsGroup('Recorded activity', activityControl, pauseControl, restDetectionControl, movingSpeedControl), settingsGroup('Terrain classification', gradeControl, windowControl, minimumControl, smoothingControl), settingsGroup('Joining interruptions', bridgeControl, counterControl, counterLengthControl, counterReversalControl));
+settingsControls.replaceChildren(settingsGroup('Route', routeFile, exampleRouteControl), settingsGroup('Recorded activity', activityControl, pauseControl, restDetectionControl, movingSpeedControl), settingsGroup('Terrain classification', gradeControl, gradientWindowControl, smoothingControl, windowControl, minimumControl), settingsGroup('Joining interruptions', bridgeControl, counterControl, counterLengthControl, counterReversalControl));
 function setParsedRoute(parsed: ParsedRoute) {
     p = parsed.points;
     waypoints = parsed.waypoints;
@@ -334,6 +339,7 @@ function locate(d: number) { let a = 0, b = p.length - 1; while (a < b) {
 function analyse() {
     const analysis = analyseTerrain(p, {
         gradeThreshold: val('#grade'),
+        localGradientWindow: Number(localGradientWindow.value),
         rollingWindow: val('#window'),
         minimumSection: val('#min'),
         flatRollingBridge: val('#bridge'),
@@ -360,7 +366,7 @@ function analyse() {
 function buildRoutePrediction() { const curve = curvePoints(); if (curve.length < 2 || !p.length || profile.length !== p.length) {
     routePrediction = null;
     return null;
-} return routePrediction = predictRoutePace(p, profile, curve); }
+} return routePrediction = predictRoutePace(p, profile, curve, Number(localGradientWindow.value)); }
 function activityMovingSettings() {
     return {
         gapCutoffSeconds: Number(activityPause.value),
@@ -411,7 +417,7 @@ function drawActivityComparison() {
     });
 }
 function activityGradientSamples() {
-    return createActivityGradientSamples(activity, distance => localGradeAtDistance(p, profile, distance));
+    return createActivityGradientSamples(activity, distance => localGradeAtDistance(p, profile, distance, Number(localGradientWindow.value)));
 }
 function drawActivityGradient() {
     const canvas = activityPanel.querySelector<HTMLCanvasElement>('#activity-gradient-chart');
@@ -640,7 +646,7 @@ function renderWaypointSegments() {
     const overallSummaryRow = `<tr class="waypoint-overall-summary"><th>Overall</th><th>${fmt(overall.distance)}</th><th>${overallElevation > 0 ? '+' : ''}${overallElevation} m</th><th>${overallGrade === null ? '—' : `${overallGrade.toFixed(1)}%`}</th>${overallPredicted}${overallActual}</tr>`;
     const actualHeader = showActivity ? '<th colspan="5">Actual (Recorded Activity)</th>' : '', actualColumns = showActivity ? '<th rowspan="2">Pace</th><th rowspan="2">VAM</th><th rowspan="2">Time</th><th rowspan="2">Cumulative</th><th rowspan="2">Difference</th>' : '';
     waypointSegmentPanel.hidden = false;
-    waypointSegmentPanel.innerHTML = `<h3>Waypoint Segments</h3><p>Elevation change and Segment Average use the displayed endpoint elevations: a named waypoint’s own elevation when present, otherwise the unsmoothed route elevation. Local Gradient uses the smoothed 100 m local-gradient method from the Terrain-derived Sections analysis.</p><table><thead><tr><th rowspan="3">Segment</th><th rowspan="3">Distance</th><th rowspan="3">Elevation change</th><th rowspan="3">Average grade</th><th colspan="8">Predicted Pace Analysis — ${escapeHtml(activePaceCurve().name)}</th>${actualHeader}</tr><tr><th colspan="4">Segment Average</th><th colspan="4">Local Gradient</th>${actualColumns}</tr><tr><th>Pace</th><th>VAM</th><th>Time</th><th>Cumulative</th><th>Pace</th><th>VAM</th><th>Time</th><th>Cumulative</th></tr></thead><tbody>${rows}</tbody><tfoot>${summaryRows}${overallSummaryRow}</tfoot></table>`;
+    waypointSegmentPanel.innerHTML = `<h3>Waypoint Segments</h3><p>Elevation change and Segment Average use the displayed endpoint elevations: a named waypoint’s own elevation when present, otherwise the unsmoothed route elevation. Local Gradient uses the smoothed ${localGradientWindow.value} m local-gradient method from the Terrain-derived Sections analysis.</p><table><thead><tr><th rowspan="3">Segment</th><th rowspan="3">Distance</th><th rowspan="3">Elevation change</th><th rowspan="3">Average grade</th><th colspan="8">Predicted Pace Analysis — ${escapeHtml(activePaceCurve().name)}</th>${actualHeader}</tr><tr><th colspan="4">Segment Average</th><th colspan="4">Local Gradient</th>${actualColumns}</tr><tr><th>Pace</th><th>VAM</th><th>Time</th><th>Cumulative</th><th>Pace</th><th>VAM</th><th>Time</th><th>Cumulative</th></tr></thead><tbody>${rows}</tbody><tfoot>${summaryRows}${overallSummaryRow}</tfoot></table>`;
 }
 function syncSubsectionToggle() { const hasChildren = ms.some(hasTerrainChildren), hasCollapsed = ms.some((section, index) => hasTerrainChildren(section) && collapsedPrimary.has(index)); subsectionToggleButton.hidden = !hasChildren; subsectionToggleButton.textContent = hasCollapsed ? 'Expand all subsections' : 'Collapse all subsections'; }
 ($('#rows') as HTMLElement).addEventListener('click', event => { const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-collapse]'); if (!button)
@@ -694,7 +700,7 @@ function draw(e: number[]) {
         showWaypoints: showWaypoints.checked,
         colourMode: plotColours.value === 'gradient' ? 'gradient' : 'sections',
         gradeThreshold: val('#grade'),
-        localGrade: index => localGradeAtDistance(p, e, p[index].d),
+        localGrade: index => localGradeAtDistance(p, e, p[index].d, Number(localGradientWindow.value)),
         hoveredPrimary: hovered,
         hoverDistance,
         selectionStart,
@@ -735,6 +741,7 @@ function downloadAnalysisCsv() {
         ['minimum_section_m', val('#min')],
         ['flat_rolling_bridge_m', val('#bridge')],
         ['profile_smoothing_m', Number(profileSmoothing.value)],
+        ['local_gradient_window_m', Number(localGradientWindow.value)],
         ['counter_slope_bridge_enabled', counterBridge.checked],
         ['counter_slope_bridge_m', Number(counterBridgeLength.value)],
         ['counter_slope_reversal_percent', Number(counterReversal.value)],
