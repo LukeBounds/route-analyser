@@ -37,6 +37,20 @@
   align-items: end;
 }
 
+.activity-analysis-section > h2 + .prediction-head {
+  margin-top: 16px;
+}
+
+.prediction-head .eyebrow {
+  margin: 0 0 3px;
+}
+
+.activity-difference {
+  display: block;
+  font-size: 2rem;
+  line-height: 1.1;
+}
+
 .prediction-head > p {
   max-width: 440px;
   margin: 0;
@@ -462,6 +476,14 @@
   border-top: 1px solid var(--border);
 }
 
+.analysis-subheading {
+  margin: 24px 0 0;
+}
+
+.activity-analysis-section > h2 {
+  margin: 0;
+}
+
 .waypoint-note {
   margin: 8px 0 18px;
   color: var(--muted);
@@ -477,7 +499,7 @@
 }
 
 #waypoints summary {
-  margin: 18px;
+  margin: 10px 18px 18px;
   color: var(--secondary-text);
   cursor: pointer;
   font-weight: 700;
@@ -492,6 +514,10 @@
   margin-top: 18px;
 }
 
+#waypoints > h3 {
+  margin-bottom: 0;
+}
+
 .activity-stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -501,8 +527,9 @@
 
 .activity-stats article {
   padding: 12px;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--surface-soft);
+  background: var(--surface);
 }
 
 .activity-stats b,
@@ -521,6 +548,10 @@
   margin: 14px 0 4px;
 }
 
+#activity-analysis h3 {
+  margin: 24px 0 0;
+}
+
 #activity-gradient-chart {
   height: 250px;
   margin: 10px 0 4px;
@@ -529,7 +560,8 @@
 .calibration {
   margin-top: 18px;
   padding: 12px 14px;
-  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  background: var(--surface);
   border-radius: 8px;
 }
 

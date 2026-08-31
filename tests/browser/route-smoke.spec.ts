@@ -14,8 +14,15 @@ test('bundled route analysis and pace state survive page navigation', async ({ p
     await page.getByRole('button', { name: 'Load example' }).click();
 
     await expect(page.getByText('Bob Graham — Luke’s Version: 3,948 points analysed across 101.91 km.')).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Terrain-derived sections' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Waypoint-defined analysis' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Analysis overview' })).toBeVisible();
+    await expect(page.locator('#activity-analysis')).toHaveClass(/analysis-divider/);
+    await expect(page.locator('#activity-analysis')).not.toHaveClass(/prediction/);
+    await expect(page.getByRole('heading', { level: 2, name: 'Terrain-derived analysis' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 3, name: 'Elevation profile' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 3, name: 'Sections table' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Waypoint-defined analysis' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 3, name: 'Waypoints' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 3, name: 'Waypoint Segments' })).toBeVisible();
     await expect(page.locator('#stats').getByText('Profile elevation gain', { exact: true })).toBeVisible();
     await expect(page.locator('#stats').getByText('Profile elevation loss', { exact: true })).toBeVisible();
     await expect(page.locator('.elevation-stat').first()).toContainText('By section');
@@ -84,6 +91,6 @@ test('an activity that does not match a loaded route shows a warning and keeps t
     const warning = page.getByRole('alert').filter({ hasText: 'Activity not matched' });
     await expect(warning).toContainText('does not match the loaded route closely enough');
     await expect(warning).toContainText('loaded route is unchanged');
-    await expect(page.getByRole('heading', { name: 'Terrain-derived sections' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Analysis overview' })).toBeVisible();
     await expect(page.getByText('Download activity comparison CSV')).toHaveCount(0);
 });

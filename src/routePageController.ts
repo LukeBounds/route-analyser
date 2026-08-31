@@ -86,9 +86,9 @@ const waypointPanel = document.createElement('section');
 waypointPanel.className = 'table';
 waypointPanel.id = 'waypoints';
 waypointPanel.hidden = true;
-waypointPanel.innerHTML = '<details><summary>Waypoints</summary><p class="waypoint-warning" hidden></p><table><thead><tr><th>Name</th><th>Route distance</th><th>Elevation</th></tr></thead><tbody></tbody></table></details>';
+waypointPanel.innerHTML = '<h3>Waypoints</h3><details><summary>Show waypoint list</summary><p class="waypoint-warning" hidden></p><table><thead><tr><th>Name</th><th>Route distance</th><th>Elevation</th></tr></thead><tbody></tbody></table></details>';
 result.append(waypointPanel);
-result.querySelector('.result-head h2')!.textContent = 'Terrain-derived sections';
+result.querySelector('.result-head h2')!.textContent = 'Analysis overview';
 const waypointAnalysisHeading = document.createElement('h2');
 waypointAnalysisHeading.className = 'analysis-divider';
 waypointAnalysisHeading.textContent = 'Waypoint-defined analysis';
@@ -126,10 +126,18 @@ $('.controls').append(activityControl, pauseControl, restDetectionControl, movin
 const activityFile = activityControl.querySelector('input')!, activityPause = pauseControl.querySelector('input') as HTMLInputElement, activityRestDetection = restDetectionControl.querySelector('input') as HTMLInputElement, activityMovingSpeed = movingSpeedControl.querySelector('input') as HTMLInputElement;
 activityMovingSpeed.disabled = true;
 const activityPanel = document.createElement('section');
-activityPanel.className = 'prediction';
+activityPanel.className = 'activity-analysis-section analysis-divider';
 activityPanel.id = 'activity-analysis';
 activityPanel.hidden = true;
 result.insertBefore(activityPanel, result.querySelector('#plot-range'));
+const terrainAnalysisHeading = document.createElement('h2');
+terrainAnalysisHeading.className = 'analysis-divider';
+terrainAnalysisHeading.textContent = 'Terrain-derived analysis';
+result.insertBefore(terrainAnalysisHeading, result.querySelector('#plot-range'));
+const elevationProfileHeading = document.createElement('h3');
+elevationProfileHeading.className = 'analysis-subheading';
+elevationProfileHeading.textContent = 'Elevation profile';
+result.insertBefore(elevationProfileHeading, result.querySelector('#plot-range'));
 const paceAnalysisButton = document.createElement('button');
 paceAnalysisButton.type = 'button';
 paceAnalysisButton.id = 'run-pace-analysis';
@@ -462,7 +470,7 @@ function renderActivityAnalysis() { if (!activity.length) {
         coveragePercent: (end - start) / (p.at(-1)!.d) * 100,
         qualityText: activityMatchQuality ? `${Math.round(activityMatchQuality.within150m)}% of samples within 150 m; median ${Math.round(activityMatchQuality.medianError)} m, 90th percentile ${Math.round(activityMatchQuality.p90Error)} m, and ${Math.round(activityMatchQuality.ambiguousPercent)}% route-position ambiguous.` : 'Match quality unavailable.',
         guidanceHtml: [...byKind.entries()].filter(([, value]) => value.expected > 60).map(([kind, value]) => { const difference = (value.actual / value.expected - 1) * 100; return `<li><b>${kind[0].toUpperCase() + kind.slice(1)}:</b> ${Math.abs(difference).toFixed(0)}% ${difference > 0 ? 'slower' : 'faster'} than the selected curve.</li>`; }).join('') || '<li>Not enough route coverage for section-level calibration.</li>',
-    }, curveName = escapeHtml(viewModel.curveName); activityPanel.innerHTML = `<div class="prediction-head"><div><p class="eyebrow">Activity versus ${curveName}</p><h2>${signedDuration(viewModel.differenceSeconds)}</h2></div><p>${durationText(viewModel.actualSeconds)} moving versus ${durationText(viewModel.expectedSeconds)} predicted across ${viewModel.coveragePercent.toFixed(0)}% of the route. Positive means slower than predicted.</p></div><div class="activity-stats"><article><b>${durationText(viewModel.elapsedSeconds)}</b><span>Elapsed time</span></article><article><b>${durationText(viewModel.actualSeconds)}</b><span>Moving time</span></article><article><b>${durationText(viewModel.expectedSeconds)}</b><span>Predicted time · ${curveName}</span></article><article><b>${formatPace(viewModel.actualSeconds / (viewModel.distance / 1000))}/km</b><span>Actual average pace</span></article></div><p class="match-quality"><b>Route match:</b> ${viewModel.qualityText}</p><p>The main analysis CSV includes this activity comparison.</p><canvas id="activity-chart" aria-label="Actual and predicted cumulative moving time">Actual and predicted values are included in the terrain and waypoint tables.</canvas><h3>Actual pace against the curve</h3><canvas id="activity-gradient-chart" aria-label="Actual pace samples against the pace curve">The activity summary and section comparisons provide a text alternative to this chart.</canvas><details class="calibration" open><summary>Calibration indications</summary><p>These observations describe this activity; keep effort level and terrain context in mind before changing a curve.</p><ul>${viewModel.guidanceHtml}</ul></details>`; renderTerrainTable(); renderWaypointSegments(); drawActivityComparison(); drawActivityGradient(); }
+    }, curveName = escapeHtml(viewModel.curveName); activityPanel.innerHTML = `<h2>Activity comparison</h2><div class="prediction-head"><div><p class="eyebrow">Versus ${curveName}</p><strong class="activity-difference">${signedDuration(viewModel.differenceSeconds)}</strong></div><p>${durationText(viewModel.actualSeconds)} moving versus ${durationText(viewModel.expectedSeconds)} predicted across ${viewModel.coveragePercent.toFixed(0)}% of the route. Positive means slower than predicted.</p></div><div class="activity-stats"><article><b>${durationText(viewModel.elapsedSeconds)}</b><span>Elapsed time</span></article><article><b>${durationText(viewModel.actualSeconds)}</b><span>Moving time</span></article><article><b>${durationText(viewModel.expectedSeconds)}</b><span>Predicted time · ${curveName}</span></article><article><b>${formatPace(viewModel.actualSeconds / (viewModel.distance / 1000))}/km</b><span>Actual average pace</span></article></div><p class="match-quality"><b>Route match:</b> ${viewModel.qualityText}</p><h3>Cumulative time</h3><canvas id="activity-chart" aria-label="Actual and predicted cumulative moving time">Actual and predicted values are included in the terrain and waypoint tables.</canvas><h3>Actual pace against the curve</h3><canvas id="activity-gradient-chart" aria-label="Actual pace samples against the pace curve">The activity summary and section comparisons provide a text alternative to this chart.</canvas><details class="calibration" open><summary>Calibration indications</summary><p>These observations describe this activity; keep effort level and terrain context in mind before changing a curve.</p><ul>${viewModel.guidanceHtml}</ul></details>`; renderTerrainTable(); renderWaypointSegments(); drawActivityComparison(); drawActivityGradient(); }
 activityFile.onchange = async () => { const file = activityFile.files?.[0]; if (!file)
     return; error.textContent = ''; activityWarning.hidden = true; activityWarning.textContent = ''; try {
     const text = await file.text(), recorded = parseActivityGpx(text), largeActivityWarning = largeTraceGuidance('activity', recorded.length, file.size), useAsRoute = !p.length || !profile.length;
