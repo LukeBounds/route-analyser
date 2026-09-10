@@ -119,6 +119,10 @@
   margin-top: 0;
 }
 
+.analysis-column-group-start {
+  border-left: 1px dashed var(--border-soft);
+}
+
 .analysis-curve-control {
   display: grid;
   gap: 4px;
@@ -789,20 +793,23 @@
   margin-top: 14px;
 }
 
+#gradient-exposure-breakdown,
 #curve-point-influence {
   margin-top: 16px;
-  padding: 0 14px 14px;
+  padding: 10px 14px 14px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--surface);
 }
 
+#gradient-exposure-breakdown summary,
 #curve-point-influence summary {
   cursor: pointer;
   color: var(--secondary-text);
   font-weight: 750;
 }
 
+#gradient-exposure-breakdown .table,
 #curve-point-influence .table {
   margin-top: 10px;
 }

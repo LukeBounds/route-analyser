@@ -20,6 +20,8 @@ test('bundled route analysis and pace state survive page navigation', async ({ p
     await expect(page.getByRole('heading', { level: 2, name: 'Terrain-derived analysis' })).toBeVisible();
     await expect(page.getByRole('heading', { level: 3, name: 'Elevation profile' })).toBeVisible();
     await expect(page.getByRole('heading', { level: 3, name: 'Gradient exposure' })).toBeVisible();
+    await expect(page.locator('#gradient-exposure-breakdown')).not.toHaveAttribute('open', '');
+    await expect(page.locator('#gradient-exposure-breakdown').getByText('Gradient range breakdown', { exact: true })).toBeVisible();
     await expect(page.locator('.gradient-exposure-table tbody tr')).not.toHaveCount(0);
     await expect(page.locator('#gradient-exposure-metric option[value="time"]')).toHaveAttribute('disabled', '');
     await expect(page.locator('#gradient-exposure-metric option[value="time"]')).toHaveText('Predicted time — run pace analysis first');
@@ -132,13 +134,16 @@ test('activity tables group per-section and cumulative prediction differences', 
     }, activityGpx);
     await expect(page.locator('#activity-analysis')).toContainText('Activity loaded');
     await page.getByRole('button', { name: 'Run pace analysis' }).click();
+    await expect(page.locator('details.calibration')).not.toHaveAttribute('open', '');
 
     const terrainTable = page.locator('#rows').locator('xpath=ancestor::table');
     await expect(terrainTable.getByRole('columnheader', { name: 'Predicted vs Actual' })).toBeVisible();
     await expect(terrainTable.getByRole('columnheader', { name: 'Cumulative difference' })).toBeVisible();
+    await expect(terrainTable.locator('tbody tr').first().locator('.analysis-column-group-start')).toHaveCount(3);
     const waypointTable = page.locator('#waypoint-segments table');
     await expect(waypointTable.getByRole('columnheader', { name: 'Predicted vs Actual' })).toBeVisible();
     await expect(waypointTable.getByRole('columnheader', { name: 'Cumulative difference' })).toBeVisible();
+    await expect(waypointTable.locator('tbody tr').first().locator('.analysis-column-group-start')).toHaveCount(4);
 });
 
 test('a loaded route can generate and save a target-time pace curve', async ({ page }) => {
