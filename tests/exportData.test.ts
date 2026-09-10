@@ -106,5 +106,7 @@ equal(activitySummary[38], 140, 'unified CSV includes recorded elapsed time in t
 equal(unifiedCsv.find(row => row[0] === 'terrain_subsection')?.[28], 140, 'unified CSV adds actual values to subsection rows');
 equal(unifiedCsv.find(row => row[0] === 'waypoint_segment')?.[32], 20, 'unified CSV adds differences to waypoint-segment rows');
 equal(unifiedCsv.find(row => row[0] === 'waypoint_segment')?.[45], 20, 'unified CSV adds cumulative differences to waypoint-segment rows');
+equal(unifiedCsv.find(row => row[0] === 'waypoint_segment')?.[46], 20 / 120 * 100, 'unified CSV adds percentage differences to waypoint-segment rows');
+equal(unifiedCsv.find(row => row[0] === 'waypoint_segment')?.[47], 20 / 120 * 100, 'unified CSV adds cumulative percentage differences to waypoint-segment rows');
 
 console.log('Export-data regression tests passed.');

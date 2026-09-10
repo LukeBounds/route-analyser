@@ -148,15 +148,20 @@ test('activity tables group per-section and cumulative prediction differences', 
     await expect(page.locator('#activity-analysis')).toContainText('Activity loaded');
     await page.getByRole('button', { name: 'Run pace analysis' }).click();
     await expect(page.locator('details.calibration')).not.toHaveAttribute('open', '');
+    await expect(page.locator('.activity-difference')).toContainText('%');
 
     const terrainTable = page.locator('#rows').locator('xpath=ancestor::table');
     await expect(terrainTable.getByRole('columnheader', { name: 'Predicted vs Actual' })).toBeVisible();
     await expect(terrainTable.getByRole('columnheader', { name: 'Cumulative difference' })).toBeVisible();
     await expect(terrainTable.locator('tbody tr').first().locator('.analysis-column-group-start')).toHaveCount(3);
+    await expect(terrainTable.locator('tbody tr').first().locator('.prediction-difference')).toHaveCount(2);
+    await expect(terrainTable.locator('tbody tr').first().locator('.prediction-difference').first()).toContainText('%');
     const waypointTable = page.locator('#waypoint-segments table');
     await expect(waypointTable.getByRole('columnheader', { name: 'Predicted vs Actual' })).toBeVisible();
     await expect(waypointTable.getByRole('columnheader', { name: 'Cumulative difference' })).toBeVisible();
     await expect(waypointTable.locator('tbody tr').first().locator('.analysis-column-group-start')).toHaveCount(4);
+    await expect(waypointTable.locator('tbody tr').first().locator('.prediction-difference')).toHaveCount(2);
+    await expect(waypointTable.locator('tbody tr').first().locator('.prediction-difference').first()).toContainText('%');
 });
 
 test('a loaded route can generate and save a target-time pace curve', async ({ page }) => {

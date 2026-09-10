@@ -53,6 +53,8 @@ export const routeAnalysisCsvHeader = [
     'predicted_time_share_percent', 'curve_point_influence_percent',
     'time_added_per_one_percent_slower_s',
     'actual_cumulative_minus_predicted_s',
+    'actual_minus_predicted_percent',
+    'actual_cumulative_minus_predicted_percent',
 ];
 
 export function buildRouteAnalysisCsv(options: {
@@ -133,6 +135,8 @@ export function buildRouteAnalysisCsv(options: {
             [31, actualEnd - activityPoints[0].moving],
             [32, comparison?.delta],
             [45, cumulativeComparison?.delta],
+            [46, comparison && comparison.expected > 0 ? comparison.delta / comparison.expected * 100 : undefined],
+            [47, cumulativeComparison && cumulativeComparison.expected > 0 ? cumulativeComparison.delta / cumulativeComparison.expected * 100 : undefined],
         ];
     };
     if (activityPoints.length && actualAt) {
