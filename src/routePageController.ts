@@ -538,6 +538,7 @@ function activityViewAccessor(): ActivityViewAccessor | null {
             const value = interpolateActivityTime(distance);
             return value === null ? null : value - activity[0].moving;
         },
+        cumulativeDifferenceAt: distance => activityComparison(activity[0].routeD, distance)?.delta ?? null,
     };
 }
 
@@ -551,8 +552,8 @@ function terrainTableHeader(showPrediction: boolean, showActivity: boolean) {
     const base = '<th rowspan="2">#</th><th rowspan="2">Type</th><th rowspan="2">From</th><th rowspan="2">To</th><th rowspan="2">Distance</th><th rowspan="2">Net elevation change</th><th rowspan="2">Profile elevation gain</th><th rowspan="2">Profile elevation loss</th><th rowspan="2">Average grade</th>';
     if (!showPrediction)
         return '<tr><th>#</th><th>Type</th><th>From</th><th>To</th><th>Distance</th><th>Net elevation change</th><th>Profile elevation gain</th><th>Profile elevation loss</th><th>Average grade</th></tr>';
-    const actual = showActivity ? '<th colspan="5">Actual (Recorded Activity)</th>' : '';
-    const actualColumns = showActivity ? '<th>Time</th><th>Pace</th><th>VAM</th><th>Cumulative</th><th>Difference</th>' : '';
+    const actual = showActivity ? '<th colspan="4">Actual (Recorded Activity)</th><th colspan="2">Predicted vs Actual</th>' : '';
+    const actualColumns = showActivity ? '<th>Time</th><th>Pace</th><th>VAM</th><th>Cumulative</th><th>Difference</th><th>Cumulative difference</th>' : '';
     return `<tr>${base}<th colspan="4">Predicted Pace Analysis — ${escapeHtml(activePaceCurve().name)}</th>${actual}</tr><tr><th>Time</th><th>Pace</th><th>VAM</th><th>Cumulative</th>${actualColumns}</tr>`;
 }
 
@@ -564,8 +565,8 @@ function terrainRowHtml(row: TerrainRowViewModel, showPrediction: boolean, showA
     const predicted = showPrediction ? metricCells(row.predicted) : '';
     const actual = showActivity
         ? row.actual
-            ? `<td>${durationText(row.actual.seconds)}</td><td>${row.actual.paceSecondsPerKm === null ? '—' : `${formatPace(row.actual.paceSecondsPerKm)}/km`}</td><td>${row.actual.vamMetersPerHour === null ? '—' : vamText(row.actual.vamMetersPerHour, 3600)}</td><td>${durationText(row.actual.cumulativeSeconds)}</td><td>${signedDuration(row.actual.differenceSeconds)}</td>`
-            : '<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>'
+            ? `<td>${durationText(row.actual.seconds)}</td><td>${row.actual.paceSecondsPerKm === null ? '—' : `${formatPace(row.actual.paceSecondsPerKm)}/km`}</td><td>${row.actual.vamMetersPerHour === null ? '—' : vamText(row.actual.vamMetersPerHour, 3600)}</td><td>${durationText(row.actual.cumulativeSeconds)}</td><td>${signedDuration(row.actual.differenceSeconds)}</td><td>${signedDuration(row.actual.cumulativeDifferenceSeconds)}</td>`
+            : '<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>'
         : '';
     const focusLabel = escapeHtml(`Focus elevation profile on section ${row.number}: ${row.label}`);
     return `<tr class="${row.child ? 'sub-row' : ''}" data-primary="${row.primaryIndex}" tabindex="0" aria-label="${focusLabel}"${hidden}><td><span class="section-number">${row.number}</span>${toggle}</td><td class="${row.kind}">${row.child ? '↳ ' : ''}${escapeHtml(row.label)}</td><td>${fmt(row.startDistance)}</td><td>${fmt(row.endDistance)}</td><td>${fmt(row.distance)}</td><td>${row.elevationChange >= 0 ? '+' : ''}${Math.round(row.elevationChange)} m</td><td>+${Math.round(row.profileElevationGain)} m</td><td>−${Math.round(row.profileElevationLoss)} m</td><td>${row.averageGrade === null ? '—' : `${row.averageGrade.toFixed(1)}%`}</td>${predicted}${actual}</tr>`;
@@ -585,10 +586,11 @@ function terrainSummaryActual(summary: TerrainAggregateViewModel, showActivity: 
     if (!showActivity)
         return '';
     if (summary.actualSeconds === null)
-        return '<th>—</th><th>—</th><th>—</th><th>—</th><th>—</th>';
+        return '<th>—</th><th>—</th><th>—</th><th>—</th><th>—</th><th>—</th>';
     const pace = summary.distance > 0 ? `${formatPace(summary.actualSeconds / (summary.distance / 1000))}/km` : '—';
     const vam = !showVam || cumulative ? '—' : summary.actualSeconds > 0 ? vamText(summary.elevationChange, summary.actualSeconds) : '—';
-    return `<th>${durationText(summary.actualSeconds)}</th><th>${pace}</th><th>${vam}</th><th>${cumulative ? durationText(summary.actualSeconds) : ''}</th><th>${summary.actualDifferenceSeconds === null ? '—' : signedDuration(summary.actualDifferenceSeconds)}</th>`;
+    const difference = summary.actualDifferenceSeconds === null ? '—' : signedDuration(summary.actualDifferenceSeconds);
+    return `<th>${durationText(summary.actualSeconds)}</th><th>${pace}</th><th>${vam}</th><th>${cumulative ? durationText(summary.actualSeconds) : ''}</th><th>${difference}</th><th>${cumulative ? difference : ''}</th>`;
 }
 
 function terrainSummaryRow(summary: TerrainAggregateViewModel, label: string, heading: string, showPrediction: boolean, showActivity: boolean, overall = false, showVam = true) {
@@ -633,8 +635,8 @@ function renderWaypointSegments() {
     const rows = viewModel.rows.map(row => {
         const actual = showActivity
             ? row.actual
-                ? `<td>${row.actual.paceSecondsPerKm === null ? '—' : `${formatPace(row.actual.paceSecondsPerKm)}/km`}</td><td>${row.actual.vamMetersPerHour === null ? '—' : vamText(row.actual.vamMetersPerHour, 3600)}</td><td>${durationText(row.actual.seconds)}</td><td>${durationText(row.actual.cumulativeSeconds)}</td><td>${signedDuration(row.actual.differenceSeconds)}</td>`
-                : '<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>'
+                ? `<td>${row.actual.paceSecondsPerKm === null ? '—' : `${formatPace(row.actual.paceSecondsPerKm)}/km`}</td><td>${row.actual.vamMetersPerHour === null ? '—' : vamText(row.actual.vamMetersPerHour, 3600)}</td><td>${durationText(row.actual.seconds)}</td><td>${durationText(row.actual.cumulativeSeconds)}</td><td>${signedDuration(row.actual.differenceSeconds)}</td><td>${signedDuration(row.actual.cumulativeDifferenceSeconds)}</td>`
+                : '<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>'
             : '';
         return `<tr><td>${escapeHtml(row.startName)} → ${escapeHtml(row.endName)}</td><td>${fmt(row.distance)}</td><td>${row.elevationChange >= 0 ? '+' : ''}${Math.round(row.elevationChange)} m</td><td>${row.averageGrade.toFixed(1)}%</td>${predictedCells(row.segmentAverage)}${predictedCells(row.localGradient)}${actual}</tr>`;
     }).join('');
@@ -645,7 +647,7 @@ function renderWaypointSegments() {
         const averageVam = summary.segmentAverageSeconds > 0 ? vamText(summary.elevationChange, summary.segmentAverageSeconds) : '—';
         const localVam = summary.localGradientSeconds > 0 ? vamText(summary.elevationChange, summary.localGradientSeconds) : '—';
         const predicted = canEstimate ? `<th>${averagePace}</th><th>${averageVam}</th><th>${summary.distance > 0 ? durationText(summary.segmentAverageSeconds) : ''}</th><th></th><th>${localPace}</th><th>${localVam}</th><th>${summary.distance > 0 ? durationText(summary.localGradientSeconds) : ''}</th><th></th>` : '<th colspan="8"></th>';
-        const actual = showActivity ? `<th></th><th></th><th>${summary.actualSeconds === null ? '' : durationText(summary.actualSeconds)}</th><th></th><th></th>` : '';
+        const actual = showActivity ? `<th></th><th></th><th>${summary.actualSeconds === null ? '' : durationText(summary.actualSeconds)}</th><th></th><th></th><th></th>` : '';
         return `<tr><th>${index === 0 ? 'Summary' : ''}</th><th>${fmt(summary.distance)}</th><th>${summary.elevationChange >= 0 ? '+' : ''}${Math.round(summary.elevationChange)} m</th><th>${summary.averageGrade === null ? '—' : `${summary.averageGrade.toFixed(1)}%`}</th>${predicted}${actual}</tr>`;
     }).join('');
     const overall = viewModel.overall;
@@ -656,13 +658,13 @@ function renderWaypointSegments() {
         : '<th colspan="8"></th>';
     const overallActual = showActivity
         ? activityTotal
-            ? `<th>${activityDistance > 0 ? `${formatPace(activityTotal.actual / (activityDistance / 1000))}/km` : '—'}</th><th>${vamText(activityChange, activityTotal.actual)}</th><th>${durationText(activityTotal.actual)}</th><th>${durationText(activityTotal.actual)}</th><th>${signedDuration(activityTotal.delta)}</th>`
-            : '<th></th><th></th><th></th><th></th><th></th>'
+            ? `<th>${activityDistance > 0 ? `${formatPace(activityTotal.actual / (activityDistance / 1000))}/km` : '—'}</th><th>${vamText(activityChange, activityTotal.actual)}</th><th>${durationText(activityTotal.actual)}</th><th>${durationText(activityTotal.actual)}</th><th>${signedDuration(activityTotal.delta)}</th><th>${signedDuration(activityTotal.delta)}</th>`
+            : '<th></th><th></th><th></th><th></th><th></th><th></th>'
         : '';
     const overallElevation = Math.round(overall.elevationChange);
     const overallGrade = overall.averageGrade !== null && Math.abs(overall.averageGrade) < .05 ? 0 : overall.averageGrade;
     const overallSummaryRow = `<tr class="waypoint-overall-summary"><th>Overall</th><th>${fmt(overall.distance)}</th><th>${overallElevation > 0 ? '+' : ''}${overallElevation} m</th><th>${overallGrade === null ? '—' : `${overallGrade.toFixed(1)}%`}</th>${overallPredicted}${overallActual}</tr>`;
-    const actualHeader = showActivity ? '<th colspan="5">Actual (Recorded Activity)</th>' : '', actualColumns = showActivity ? '<th rowspan="2">Pace</th><th rowspan="2">VAM</th><th rowspan="2">Time</th><th rowspan="2">Cumulative</th><th rowspan="2">Difference</th>' : '';
+    const actualHeader = showActivity ? '<th colspan="4">Actual (Recorded Activity)</th><th colspan="2">Predicted vs Actual</th>' : '', actualColumns = showActivity ? '<th rowspan="2">Pace</th><th rowspan="2">VAM</th><th rowspan="2">Time</th><th rowspan="2">Cumulative</th><th rowspan="2">Difference</th><th rowspan="2">Cumulative difference</th>' : '';
     waypointSegmentPanel.hidden = false;
     waypointSegmentPanel.innerHTML = `<h3>Waypoint Segments</h3><p>Elevation change and Segment Average use the displayed endpoint elevations: a named waypoint’s own elevation when present, otherwise the unsmoothed route elevation. Local Gradient uses the smoothed ${localGradientWindow.value} m local-gradient method from the Terrain-derived Sections analysis.</p><table><thead><tr><th rowspan="3">Segment</th><th rowspan="3">Distance</th><th rowspan="3">Elevation change</th><th rowspan="3">Average grade</th><th colspan="8">Predicted Pace Analysis — ${escapeHtml(activePaceCurve().name)}</th>${actualHeader}</tr><tr><th colspan="4">Segment Average</th><th colspan="4">Local Gradient</th>${actualColumns}</tr><tr><th>Pace</th><th>VAM</th><th>Time</th><th>Cumulative</th><th>Pace</th><th>VAM</th><th>Time</th><th>Cumulative</th></tr></thead><tbody>${rows}</tbody><tfoot>${summaryRows}${overallSummaryRow}</tfoot></table>`;
 }

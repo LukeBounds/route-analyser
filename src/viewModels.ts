@@ -16,6 +16,7 @@ export type PaceMetricsViewModel = {
 
 export type ActualMetricsViewModel = PaceMetricsViewModel & {
     differenceSeconds: number;
+    cumulativeDifferenceSeconds: number;
 };
 
 export type ActivityComparisonValue = {
@@ -27,6 +28,7 @@ export type ActivityComparisonValue = {
 export type ActivityViewAccessor = {
     compare: (from: number, to: number) => ActivityComparisonValue | null;
     cumulativeAt: (distance: number) => number | null;
+    cumulativeDifferenceAt: (distance: number) => number | null;
 };
 
 export type TerrainRowViewModel = {
@@ -152,12 +154,14 @@ function actualMetrics(
     elevationChange: number,
     comparison: ActivityComparisonValue | null,
     cumulativeSeconds: number | null,
+    cumulativeDifferenceSeconds: number | null,
 ): ActualMetricsViewModel | null {
-    if (!comparison || cumulativeSeconds === null)
+    if (!comparison || cumulativeSeconds === null || cumulativeDifferenceSeconds === null)
         return null;
     return {
         ...paceMetrics(distance, elevationChange, comparison.actual, cumulativeSeconds),
         differenceSeconds: comparison.delta,
+        cumulativeDifferenceSeconds,
     };
 }
 
@@ -199,7 +203,13 @@ function terrainRow(
             ? null
             : paceMetrics(distance, elevationChange, predictedSeconds, prediction.cumulative[section.b]),
         actual: activity
-            ? actualMetrics(distance, elevationChange, comparison, activity.cumulativeAt(endDistance))
+            ? actualMetrics(
+                distance,
+                elevationChange,
+                comparison,
+                activity.cumulativeAt(endDistance),
+                activity.cumulativeDifferenceAt(endDistance),
+            )
             : null,
     };
 }
@@ -367,7 +377,13 @@ export function createWaypointSegmentRows(
         const endDistance = points[end.index].d;
         const comparison = activity?.compare(startDistance, endDistance) ?? null;
         const actual = activity
-            ? actualMetrics(geometry.distance, geometry.elevationChange, comparison, activity.cumulativeAt(endDistance))
+            ? actualMetrics(
+                geometry.distance,
+                geometry.elevationChange,
+                comparison,
+                activity.cumulativeAt(endDistance),
+                activity.cumulativeDifferenceAt(endDistance),
+            )
             : null;
         if (direction && actual)
             direction.actualSeconds = (direction.actualSeconds ?? 0) + actual.seconds;

@@ -33,6 +33,7 @@ const sections = [{
 const activity = {
     compare: (from: number, to: number) => ({ expected: to - from, actual: (to - from) * 1.2, delta: (to - from) * .2 }),
     cumulativeAt: (distance: number) => distance * 1.2,
+    cumulativeDifferenceAt: (distance: number) => distance * .2,
 };
 
 const terrainRows = createTerrainRows(points, sections, prediction, activity);
@@ -43,6 +44,7 @@ equal(terrainRows[1].predicted?.seconds, 60, 'subsection prediction uses cumulat
 equal(terrainRows[2].predicted?.cumulativeSeconds, 150, 'subsection cumulative prediction uses its route endpoint');
 equal(terrainRows[0].actual?.seconds, 240, 'primary actual metrics are calculated before rendering');
 equal(terrainRows[0].actual?.differenceSeconds, 40, 'activity difference is retained in the row model');
+equal(terrainRows[2].actual?.cumulativeDifferenceSeconds, 40, 'activity cumulative difference is retained at the row endpoint');
 const terrainSummary = createTerrainSummary(terrainRows);
 equal(terrainSummary.byKind.climb.distance, 200, 'terrain summary counts leaf climbs without duplicating their parent');
 equal(terrainSummary.byKind.climb.predictedSeconds, 150, 'terrain summary totals leaf-section prediction time');
@@ -100,6 +102,7 @@ equal(waypointSegments.rows.length, 1, 'waypoint rows are created from adjacent 
 equal(waypointSegments.rows[0].elevationChange, 10, 'waypoint row uses explicit endpoint elevations');
 equal(waypointSegments.rows[0].segmentAverage?.seconds, 120, 'segment-average prediction is calculated in the view model');
 equal(waypointSegments.rows[0].localGradient?.seconds, 150, 'local-gradient prediction uses the shared cumulative route prediction');
+equal(waypointSegments.rows[0].actual?.cumulativeDifferenceSeconds, 40, 'waypoint rows retain cumulative actual-versus-predicted difference');
 equal(waypointSegments.summaries[0].distance, 200, 'ascent summary distance is derived from waypoint rows');
 equal(waypointSegments.summaries[0].actualSeconds, 240, 'ascent summary totals recorded time from matching waypoint rows');
 equal(waypointSegments.overall.distance, 200, 'overall summary includes the complete waypoint-segment distance');

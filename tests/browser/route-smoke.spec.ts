@@ -106,6 +106,41 @@ test('an activity that does not match a loaded route shows a warning and keeps t
     await expect(page.getByText('Download activity comparison CSV')).toHaveCount(0);
 });
 
+test('activity tables group per-section and cumulative prediction differences', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('combobox', { name: 'Example route' }).selectOption('bob-graham-lukes-version');
+    await page.getByRole('button', { name: 'Load example' }).click();
+    await expect(page.getByText('Bob Graham — Luke’s Version: 3,948 points analysed across 101.91 km.')).toBeVisible();
+
+    const activityGpx = await page.evaluate(async () => {
+        const source = await fetch('examples/bob-graham-lukes-version.gpx').then(response => response.text());
+        const documentNode = new DOMParser().parseFromString(source, 'application/xml');
+        const namespace = documentNode.documentElement.namespaceURI;
+        documentNode.querySelectorAll('trkpt').forEach((point, index) => {
+            point.querySelector('time')?.remove();
+            const time = documentNode.createElementNS(namespace, 'time');
+            time.textContent = new Date(Date.UTC(2026, 0, 1, 6, 0, index * 10)).toISOString();
+            point.append(time);
+        });
+        return new XMLSerializer().serializeToString(documentNode);
+    });
+    await page.locator('#activity-file').evaluate((element, contents) => {
+        const transfer = new DataTransfer();
+        transfer.items.add(new File([contents], 'matching-activity.gpx', { type: 'application/gpx+xml' }));
+        (element as HTMLInputElement).files = transfer.files;
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+    }, activityGpx);
+    await expect(page.locator('#activity-analysis')).toContainText('Activity loaded');
+    await page.getByRole('button', { name: 'Run pace analysis' }).click();
+
+    const terrainTable = page.locator('#rows').locator('xpath=ancestor::table');
+    await expect(terrainTable.getByRole('columnheader', { name: 'Predicted vs Actual' })).toBeVisible();
+    await expect(terrainTable.getByRole('columnheader', { name: 'Cumulative difference' })).toBeVisible();
+    const waypointTable = page.locator('#waypoint-segments table');
+    await expect(waypointTable.getByRole('columnheader', { name: 'Predicted vs Actual' })).toBeVisible();
+    await expect(waypointTable.getByRole('columnheader', { name: 'Cumulative difference' })).toBeVisible();
+});
+
 test('a loaded route can generate and save a target-time pace curve', async ({ page }) => {
     const pageErrors: string[] = [];
     page.on('pageerror', problem => pageErrors.push(problem.message));

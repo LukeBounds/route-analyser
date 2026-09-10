@@ -105,5 +105,6 @@ equal(activitySummary[33], 2, 'unified CSV includes route-match quality in the a
 equal(activitySummary[38], 140, 'unified CSV includes recorded elapsed time in the activity summary');
 equal(unifiedCsv.find(row => row[0] === 'terrain_subsection')?.[28], 140, 'unified CSV adds actual values to subsection rows');
 equal(unifiedCsv.find(row => row[0] === 'waypoint_segment')?.[32], 20, 'unified CSV adds differences to waypoint-segment rows');
+equal(unifiedCsv.find(row => row[0] === 'waypoint_segment')?.[45], 20, 'unified CSV adds cumulative differences to waypoint-segment rows');
 
 console.log('Export-data regression tests passed.');
