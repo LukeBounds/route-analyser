@@ -180,6 +180,16 @@ result.insertBefore(terrainTableToolbar, terrainTable);
 paceAnalysisButton.onclick = () => runPaceAnalysis();
 subsectionToggleButton.onclick = () => { const hasCollapsed = ms.some((section, index) => hasTerrainChildren(section) && collapsedPrimary.has(index)); ms.forEach((section, index) => hasTerrainChildren(section) && (hasCollapsed ? collapsedPrimary.delete(index) : collapsedPrimary.add(index))); renderTerrainTable(); syncSubsectionToggle(); };
 const routePage = A.querySelector<HTMLElement>('#route-page')!;
+const analysisProgress = $('#analysis-progress') as HTMLElement;
+const analysisProgressText = $('#analysis-progress-text') as HTMLElement;
+function setAnalysisBusy(busy: boolean, message = 'Analysing GPX…') {
+    routePage.setAttribute('aria-busy', String(busy));
+    analysisProgress.hidden = !busy;
+    analysisProgressText.textContent = message;
+}
+function letBusyIndicatorPaint() {
+    return new Promise<void>(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+}
 const curvePoints = () => paceController.resolvedPoints;
 const activePaceCurve = () => paceController.activeCurve;
 const analysisCurveSelect = analysisCurveControl.querySelector<HTMLSelectElement>('select')!;
@@ -278,7 +288,9 @@ exampleRouteButton.onclick = async () => {
         return;
     exampleRouteButton.disabled = true;
     status.textContent = `Loading ${example.name}…`;
+    setAnalysisBusy(true, `Loading and analysing ${example.name}…`);
     try {
+        await letBusyIndicatorPaint();
         const response = await fetch(new URL(example.path, document.baseURI));
         if (!response.ok)
             throw Error(`The example route could not be loaded (${response.status}).`);
@@ -289,10 +301,18 @@ exampleRouteButton.onclick = async () => {
         error.textContent = problem instanceof Error ? problem.message : 'The example route could not be loaded.';
     }
     finally {
+        setAnalysisBusy(false);
         exampleRouteButton.disabled = false;
     }
 };
-settingsControls.replaceChildren(settingsGroup('Route', routeFile, exampleRouteControl), settingsGroup('Recorded activity', activityControl, activityWarning, pauseControl, restDetectionControl, movingSpeedControl), settingsGroup('Terrain classification', gradeControl, gradientWindowControl, smoothingControl, windowControl, minimumControl), settingsGroup('Joining interruptions', bridgeControl, counterControl, counterLengthControl, counterReversalControl));
+const advancedSettings = document.createElement('details');
+advancedSettings.className = 'advanced-settings';
+advancedSettings.innerHTML = '<summary>Advanced settings</summary>';
+const advancedSettingsContent = document.createElement('div');
+advancedSettingsContent.className = 'advanced-settings-content';
+advancedSettingsContent.append(settingsGroup('Recorded activity timing', pauseControl, restDetectionControl, movingSpeedControl), settingsGroup('Terrain classification', gradeControl, gradientWindowControl, smoothingControl, windowControl, minimumControl), settingsGroup('Joining interruptions', bridgeControl, counterControl, counterLengthControl, counterReversalControl));
+advancedSettings.append(advancedSettingsContent);
+settingsControls.replaceChildren(settingsGroup('Route', routeFile, exampleRouteControl), settingsGroup('Recorded activity', activityControl, activityWarning), advancedSettings);
 function setParsedRoute(parsed: ParsedRoute) {
     paceController.setGenerationRoute(null);
     p = parsed.points;
@@ -327,13 +347,17 @@ function loadRouteText(text: string, name: string, fileBytes = new Blob([text]).
     }
 }
 $f.onchange = async () => { const f = $f.files?.[0]; if (!f)
-    return; try {
+    return; setAnalysisBusy(true, `Reading and analysing ${f.name}…`); try {
+    await letBusyIndicatorPaint();
     exampleRouteSelect.value = '';
     exampleRouteButton.disabled = true;
     loadRouteText(await f.text(), f.name, f.size);
 }
 catch (e) {
     error.textContent = e instanceof Error ? e.message : 'Could not read GPX.';
+}
+finally {
+    setAnalysisBusy(false);
 } };
 function renderWaypoints() {
     routeWaypoints = [];
@@ -483,7 +507,8 @@ function renderActivityAnalysis() { if (!activity.length) {
         guidanceHtml: [...byKind.entries()].filter(([, value]) => value.expected > 60).map(([kind, value]) => { const difference = (value.actual / value.expected - 1) * 100; return `<li><b>${kind[0].toUpperCase() + kind.slice(1)}:</b> ${Math.abs(difference).toFixed(0)}% ${difference > 0 ? 'slower' : 'faster'} than the selected curve.</li>`; }).join('') || '<li>Not enough route coverage for section-level calibration.</li>',
     }, curveName = escapeHtml(viewModel.curveName); activityPanel.innerHTML = `<h2>Activity comparison</h2><div class="prediction-head"><div><p class="eyebrow">Versus ${curveName}</p><strong class="activity-difference">${signedDuration(viewModel.differenceSeconds)}</strong></div><p>${durationText(viewModel.actualSeconds)} moving versus ${durationText(viewModel.expectedSeconds)} predicted across ${viewModel.coveragePercent.toFixed(0)}% of the route. Positive means slower than predicted.</p></div><div class="activity-stats"><article><b>${durationText(viewModel.elapsedSeconds)}</b><span>Elapsed time</span></article><article class="activity-comparison-stat"><div><b>${durationText(viewModel.actualSeconds)}</b><span>Moving time</span></div><div><b>${durationText(viewModel.expectedSeconds)}</b><span>Predicted time</span></div></article><article class="activity-comparison-stat"><div><b>${formatPace(viewModel.actualSeconds / (viewModel.distance / 1000))}/km</b><span>Actual average pace</span></div><div><b>${formatPace(viewModel.expectedSeconds / (viewModel.distance / 1000))}/km</b><span>Predicted average pace</span></div></article></div><p class="match-quality"><b>Route match:</b> ${viewModel.qualityText}</p><h3>Cumulative time</h3><canvas id="activity-chart" aria-label="Actual and predicted cumulative moving time">Actual and predicted values are included in the terrain and waypoint tables.</canvas><h3>Actual pace against the curve</h3><canvas id="activity-gradient-chart" aria-label="Actual pace samples against the pace curve">The activity summary and section comparisons provide a text alternative to this chart.</canvas><details class="calibration"><summary>Calibration indications</summary><p>These observations describe this activity; keep effort level and terrain context in mind before changing a curve.</p><ul>${viewModel.guidanceHtml}</ul></details>`; renderTerrainTable(); renderWaypointSegments(); drawActivityComparison(); drawActivityGradient(); }
 activityFile.onchange = async () => { const file = activityFile.files?.[0]; if (!file)
-    return; error.textContent = ''; activityWarning.hidden = true; activityWarning.textContent = ''; try {
+    return; error.textContent = ''; activityWarning.hidden = true; activityWarning.textContent = ''; setAnalysisBusy(true, `Reading and analysing ${file.name}…`); try {
+    await letBusyIndicatorPaint();
     const text = await file.text(), recorded = parseActivityGpx(text), largeActivityWarning = largeTraceGuidance('activity', recorded.length, file.size), useAsRoute = !p.length || !profile.length;
     if (useAsRoute) {
         result.hidden = true;
@@ -523,6 +548,9 @@ catch (problem) {
     }
     else
         error.textContent = problem instanceof Error ? problem.message : 'Could not analyse this activity GPX.';
+}
+finally {
+    setAnalysisBusy(false);
 } };
 const refreshActivity = () => { if (activityFile.files?.[0])
     activityFile.dispatchEvent(new Event('change')); };

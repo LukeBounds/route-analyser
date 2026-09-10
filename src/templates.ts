@@ -20,7 +20,8 @@ export function routePageTemplate() {
                     <label>Flat/rolling bridge <output id="bridgeOut">300 m</output><input id="bridge" type="range" min="0" max="1500" step="25" value="300"></label>
                 </div>
                 <details><summary>How settings work</summary><ul><li><b>Grade threshold</b> is the sustained gradient classified as climbing or descending.</li><li><b>Rolling window</b> smooths the profile and sets the maximum span for a rolling section with internal uphill and downhill movements.</li><li><b>Minimum section</b> merges small fragments into their adjacent section.</li><li><b>Flat/rolling bridge</b> optionally joins same-direction climbs/descents across a short flat or rolling interruption that is also small compared with both adjacent sections.</li><li><b>Raw elevation gain and loss</b> use the original point-to-point terrain profile. Terrain-category totals use the displayed leaf-level subsections.</li></ul></details>
-                <p id="status">Choose a GPX file to begin.</p>
+                <div id="analysis-progress" class="analysis-progress" role="status" aria-live="polite" hidden><span class="analysis-spinner" aria-hidden="true"></span><span id="analysis-progress-text">Analysing GPX…</span></div>
+                <p id="status" aria-live="polite">Choose a GPX file to begin.</p>
                 <p id="error" role="alert"></p>
                 <div id="fill" hidden><p>This GPX has no complete elevation profile. Fill it with full-detail Mapterhorn terrain tiles; only tiles crossed by the route are requested. <a href="https://mapterhorn.com/attribution/" target="_blank" rel="noreferrer">Attribution</a>.</p><button id="fillBtn">Fill terrain elevation</button></div>
             </section>

@@ -7,13 +7,26 @@ test('bundled route analysis and pace state survive page navigation', async ({ p
     await page.goto('/');
     await expect(page.getByRole('heading', { level: 1, name: 'Terrain analyser' })).toBeVisible();
     await expect(page.locator('#gradient-window')).toHaveValue('50');
+    const advancedSettings = page.locator('details.advanced-settings');
+    await expect(advancedSettings).not.toHaveAttribute('open', '');
+    await expect(advancedSettings.getByText('Terrain classification', { exact: true })).not.toBeVisible();
+    await expect(page.getByLabel('Recorded activity GPX')).toBeVisible();
+    await advancedSettings.getByText('Advanced settings', { exact: true }).click();
+    await expect(advancedSettings.getByText('Terrain classification', { exact: true })).toBeVisible();
+    await advancedSettings.getByText('Advanced settings', { exact: true }).click();
     const restCheckbox = page.locator('#activity-rest-detection');
     expect(await restCheckbox.evaluate(element => element.getBoundingClientRect().width)).toBeLessThan(30);
 
+    await page.route('**/examples/bob-graham-lukes-version.gpx', async route => {
+        await new Promise(resolve => setTimeout(resolve, 250));
+        await route.continue();
+    });
     await page.getByRole('combobox', { name: 'Example route' }).selectOption('bob-graham-lukes-version');
     await page.getByRole('button', { name: 'Load example' }).click();
+    await expect(page.locator('#analysis-progress')).toBeVisible();
 
     await expect(page.getByText('Bob Graham — Luke’s Version: 3,948 points analysed across 101.91 km.')).toBeVisible();
+    await expect(page.locator('#analysis-progress')).toBeHidden();
     await expect(page.getByRole('heading', { level: 2, name: 'Analysis overview' })).toBeVisible();
     await expect(page.locator('#activity-analysis')).toHaveClass(/analysis-divider/);
     await expect(page.locator('#activity-analysis')).not.toHaveClass(/prediction/);
