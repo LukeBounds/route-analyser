@@ -53,6 +53,21 @@ const importedCount = model.importBackup({
 });
 equal(importedCount, 1, 'backup import reports its imported curve count');
 equal(model.activeCurve.name, 'Steady 3', 'imported names and colliding IDs are made unique');
+model.replaceAllCurves([
+    { id: 'default-a', name: 'Default A', points: [{ grade: 0, pace: '7:00' }] },
+    { id: 'default-b', name: 'Default B', points: [{ grade: 0, pace: '8:00' }] },
+]);
+equal(model.curves.length, 2, 'replacing the library removes all previous curves');
+equal(model.selectedCurveId, 'default-a', 'replacing the library selects the first default');
+equal(model.chartPreferences.curveIds.join('|'), 'default-a|default-b', 'replacing the library resets chart comparisons');
+model.replaceAllCurves(
+    [{ id: 'restored', name: 'Restored', points: [{ grade: 0, pace: '6:00' }] }],
+    'restored',
+    { curveIds: ['restored'], showPace: false, showSpeed: true, showVam: true },
+);
+equal(model.selectedCurveId, 'restored', 'replacing the library can restore a selected curve');
+equal(model.chartPreferences.showPace, false, 'replacing the library can restore chart preferences');
+equal(model.chartPreferences.showVam, true, 'restoring chart preferences includes VAM visibility');
 equal(model.storageState().selectedCurveId, model.selectedCurveId, 'model produces versioned persistence state');
 equal(model.backup('2026-08-30T00:00:00.000Z').exportedAt, '2026-08-30T00:00:00.000Z', 'model produces a dated portable backup');
 

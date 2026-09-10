@@ -2,6 +2,7 @@ import { buildRouteAnalysisCsv } from '../src/exportData.js';
 import type { ActivityPoint } from '../src/activity.js';
 import type { RoutePoint } from '../src/gpx.js';
 import type { PrimaryTerrainSection } from '../src/terrain.js';
+import { analyseGradientExposure } from '../src/gradientExposure.js';
 
 function equal<T>(actual: T, expected: T, message: string): void {
     if (actual !== expected)
@@ -26,6 +27,11 @@ const waypoints = [
     { index: 2, waypoint: { name: 'End', lat: 51.002, lon: 0, ele: 120 } },
 ];
 const prediction = { cumulative: [0, 60, 120], seconds: [0, 60, 60] };
+const resolvedPacePoints = [
+    { grade: 0, pace: '10:00', seconds: 600 },
+    { grade: 10, pace: 'vam:600', seconds: 600 },
+];
+const gradientExposure = analyseGradientExposure(route, [100, 110, 120], 50, resolvedPacePoints);
 
 const routeCsv = buildRouteAnalysisCsv({
     route,
@@ -37,13 +43,11 @@ const routeCsv = buildRouteAnalysisCsv({
     predictedTotalSeconds: 120,
     waypoints,
     rawPacePoints: [{ grade: 0, pace: '10:00' }, { grade: 10, pace: 'vam:600' }],
-    resolvedPacePoints: [
-        { grade: 0, pace: '10:00', seconds: 600 },
-        { grade: 10, pace: 'vam:600', seconds: 600 },
-    ],
+    resolvedPacePoints,
     paceCurveName: 'Test curve',
     paceCurveId: 'test',
     settings: [['grade_threshold_percent', 2]],
+    gradientExposure,
 });
 equal(routeCsv[0][0], 'record_type', 'route CSV begins with the shared header');
 ok(routeCsv.some(row => row[0] === 'terrain_section'), 'route CSV contains primary terrain rows');
@@ -54,6 +58,9 @@ equal(routeCsv.find(row => row[24] === 'raw_elevation_gain_m')?.[25], 20, 'route
 equal(routeCsv.find(row => row[24] === 'raw_elevation_loss_m')?.[25], 0, 'route CSV labels point-to-point loss as raw elevation data');
 equal(routeCsv.find(row => row[24] === 'profile_total_elevation_gain_m')?.[25], 20, 'route CSV includes profile point-to-point elevation gain');
 equal(routeCsv.find(row => row[0] === 'terrain_subsection')?.[26], 20, 'route CSV includes subsection profile elevation gain');
+ok(routeCsv.some(row => row[0] === 'gradient_exposure'), 'route CSV includes gradient exposure bands');
+ok(routeCsv.some(row => row[0] === 'curve_point_influence'), 'route CSV includes pace-curve influence rows');
+equal(routeCsv.find(row => row[0] === 'gradient_exposure')?.[41], 100, 'gradient exposure exports route share');
 
 const activity: ActivityPoint[] = route.map((point, index) => ({
     ...point,

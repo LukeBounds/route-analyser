@@ -138,6 +138,22 @@ export class PaceLibraryModel {
         return deleting;
     }
 
+    replaceAllCurves(
+        curves: StoredPaceCurve[],
+        selectedCurveId = curves[0]?.id,
+        chartPreferences: unknown = this.chartPreferences,
+    ) {
+        if (!curves.length)
+            throw new Error('A pace library needs at least one curve.');
+        const replacements = cloneCurves(curves);
+        this.curves.splice(0, this.curves.length, ...replacements);
+        this.selectedCurveId = replacements.some(curve => curve.id === selectedCurveId)
+            ? selectedCurveId!
+            : replacements[0].id;
+        Object.assign(this.chartPreferences, normalisePaceChartPreferences(chartPreferences, replacements));
+        return this.curves;
+    }
+
     importBackup(backup: PaceCurveBackup) {
         const importedIds = new Map<string, string>();
         for (const source of backup.curves) {

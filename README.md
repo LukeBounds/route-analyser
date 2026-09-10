@@ -14,7 +14,7 @@ The app also includes **Bob Graham — Luke’s Version** as a bundled example r
 
 ## Pace curves
 
-- New browsers start with four built-in curves: **21h**, **24h**, **Optimistic**, and **24h Slower Downhill**.
+- New browsers start with four built-in curves: **18h Bob**, **21h Bob**, **24h Bob**, and **24h Bob Slower Downhill**.
 - Any built-in curve can be loaded into the selected editable curve without affecting other saved curves.
 - Create, duplicate, rename, and delete multiple named pace curves in the browser.
 - Compare any selection of saved curves on shared pace and speed charts; optionally add dashed VAM overlays.

@@ -19,6 +19,8 @@ import {
 import { downloadCsv } from './csv';
 import { buildRouteAnalysisCsv } from './exportData';
 import { createMapterhornProvider } from './elevation';
+import { analyseGradientExposure, type GradientExposureAnalysis } from './gradientExposure';
+import { createGradientExposureView } from './gradientExposureView';
 import { largeTraceGuidance } from './largeTrace';
 import {
     parseActivityGpx,
@@ -67,6 +69,7 @@ type P = RoutePoint;
 type W = NamedWaypoint;
 type RouteWaypoint = SnappedWaypoint;
 let activity: ActivityPoint[] = [], routePrediction: RoutePacePrediction | null = null, activityMatchQuality: RouteMatchQuality | null = null;
+let gradientExposure: GradientExposureAnalysis | null = null;
 const C: Record<K, string> = { climb: '#c84735', descent: '#31805a', flat: '#607183', rolling: '#b67812' };
 const elevationProvider = createMapterhornProvider();
 let p: P[] = [], waypoints: W[] = [], routeName = '', routeWaypoints: RouteWaypoint[] = [], ss: S[] = [], ms: M[] = [], tot = { up: 0, down: 0 }, profile: number[] = [], routeWarnings: string[] = [], hovered: number | null = null, hoverDistance: number | null = null, selectionStart: number | null = null, selectionEnd: number | null = null, viewStart = 0, viewEnd = Infinity;
@@ -138,6 +141,7 @@ const elevationProfileHeading = document.createElement('h3');
 elevationProfileHeading.className = 'analysis-subheading';
 elevationProfileHeading.textContent = 'Elevation profile';
 result.insertBefore(elevationProfileHeading, result.querySelector('#plot-range'));
+const gradientExposureView = createGradientExposureView(chart, distance => distance >= 1000 ? `${(distance / 1000).toFixed(2)} km` : `${Math.round(distance)} m`);
 const paceAnalysisButton = document.createElement('button');
 paceAnalysisButton.type = 'button';
 paceAnalysisButton.id = 'run-pace-analysis';
@@ -290,6 +294,7 @@ exampleRouteButton.onclick = async () => {
 };
 settingsControls.replaceChildren(settingsGroup('Route', routeFile, exampleRouteControl), settingsGroup('Recorded activity', activityControl, activityWarning, pauseControl, restDetectionControl, movingSpeedControl), settingsGroup('Terrain classification', gradeControl, gradientWindowControl, smoothingControl, windowControl, minimumControl), settingsGroup('Joining interruptions', bridgeControl, counterControl, counterLengthControl, counterReversalControl));
 function setParsedRoute(parsed: ParsedRoute) {
+    paceController.setGenerationRoute(null);
     p = parsed.points;
     waypoints = parsed.waypoints;
     routeWarnings = parsed.warnings;
@@ -368,6 +373,12 @@ function analyse() {
     ms = analysis.primarySections;
     tot = analysis.totals;
     profile = analysis.profile;
+    paceController.setGenerationRoute({
+        name: routeName || 'Current route',
+        points: p,
+        profile,
+        localGradientWindow: Number(localGradientWindow.value),
+    });
     paceEstimate = null;
     routePrediction = null;
     collapsedPrimary.clear();
@@ -479,6 +490,7 @@ activityFile.onchange = async () => { const file = activityFile.files?.[0]; if (
         fill.hidden = true;
         routePrediction = null;
         const parsed = parseRouteGpx(text);
+        routeName = file.name;
         if (largeActivityWarning)
             parsed.warnings.push(largeActivityWarning);
         setParsedRoute(parsed);
@@ -666,6 +678,18 @@ function runPaceAnalysis() { const curve = curvePoints(); if (curve.length < 2) 
 function vamValue(elevationChange: number, seconds: number) { return seconds > 0 && Number.isFinite(elevationChange) ? elevationChange * 3600 / seconds : null; }
 function vamText(elevationChange: number, seconds: number) { const value = vamValue(elevationChange, seconds); return value === null ? '—' : `${value > 0 ? '+' : value < 0 ? '−' : ''}${Math.round(Math.abs(value))} m/h`; }
 function durationText(seconds: number) { return formatDuration(seconds); }
+function renderGradientExposure() {
+    if (p.length < 2 || profile.length !== p.length)
+        return;
+    const hasPrediction = routePrediction !== null && curvePoints().length >= 2;
+    gradientExposure = analyseGradientExposure(
+        p,
+        profile,
+        Number(localGradientWindow.value),
+        hasPrediction ? curvePoints() : [],
+    );
+    gradientExposureView.update(gradientExposure, hasPrediction ? activePaceCurve().name : null);
+}
 function render(e: number[]) {
     profile = e;
     hovered = null;
@@ -682,6 +706,7 @@ function render(e: number[]) {
     $('#stats').innerHTML = terrainStats + totals + prediction;
     renderTerrainTable();
     draw(e);
+    renderGradientExposure();
 }
 function draw(e: number[]) {
     if (!e.length)
@@ -770,6 +795,7 @@ function downloadAnalysisCsv() {
         paceCurveName: activePaceCurve().name,
         paceCurveId: paceController.selectedCurveId,
         settings,
+        gradientExposure,
         activity: activity.length ? { points: activity, matchQuality: activityMatchQuality } : undefined,
     }));
 }
@@ -793,8 +819,10 @@ finally {
 return {
     page: routePage,
     redraw() {
-        if (profile.length)
+        if (profile.length) {
             draw(profile);
+            gradientExposureView.redraw();
+        }
         if (!activityPanel.hidden) {
             drawActivityComparison();
             drawActivityGradient();

@@ -1,5 +1,5 @@
 import type { PaceCurveBackup, PaceCurvePoint } from './core.js';
-import { parsePaceCurveBackup } from './core.js';
+import { formatPace, parsePaceCurveBackup } from './core.js';
 import { localGradeAtDistance, type TerrainPoint } from './terrain.js';
 
 export type PacePointMethod = 'pace' | 'vam';
@@ -14,12 +14,13 @@ export interface RoutePacePrediction {
 }
 
 export function parsePaceSeconds(value: string): number | null {
-    const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+    const match = /^(\d+):(\d{2})$/.exec(value.trim());
     if (!match || Number(match[2]) > 59) {
         return null;
     }
-    const seconds = Number(match[1]) * 60 + Number(match[2]);
-    return seconds > 0 ? seconds : null;
+    const minutes = Number(match[1]);
+    const seconds = minutes * 60 + Number(match[2]);
+    return Number.isSafeInteger(minutes) && Number.isSafeInteger(seconds) && seconds > 0 ? seconds : null;
 }
 
 export function pacePointMethod(point: PaceCurvePoint): PacePointMethod {
@@ -58,6 +59,25 @@ export function resolvePaceCurve(points: PaceCurvePoint[]): ResolvedPaceCurvePoi
         .map(point => ({ ...point, seconds: pacePointSeconds(point) }))
         .filter((point): point is ResolvedPaceCurvePoint => point.seconds !== null && isSemanticallyValidPacePoint(point))
         .sort((a, b) => a.grade - b.grade);
+}
+
+export function roundPaceCurvePoints(
+    points: PaceCurvePoint[],
+    paceIncrementSeconds = 5,
+    vamIncrement = 5,
+): PaceCurvePoint[] {
+    return points.map(point => {
+        const seconds = pacePointSeconds(point);
+        if (seconds === null)
+            return { ...point };
+        if (pacePointMethod(point) === 'vam') {
+            const vam = Number(pacePointInput(point));
+            const rounded = Math.max(vamIncrement, Math.round(vam / vamIncrement) * vamIncrement);
+            return { ...point, pace: `vam:${rounded}` };
+        }
+        const rounded = Math.max(paceIncrementSeconds, Math.round(seconds / paceIncrementSeconds) * paceIncrementSeconds);
+        return { ...point, pace: formatPace(rounded) };
+    });
 }
 
 export function createPaceInterpolator(points: ResolvedPaceCurvePoint[]): (grade: number) => number {

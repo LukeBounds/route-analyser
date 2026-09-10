@@ -6,6 +6,7 @@ import {
     parseValidatedPaceCurveBackup,
     predictRoutePace,
     resolvePaceCurve,
+    roundPaceCurvePoints,
 } from '../src/pace.js';
 
 function equal<T>(actual: T, expected: T, message: string): void {
@@ -21,6 +22,17 @@ function close(actual: number, expected: number, message: string): void {
 }
 
 equal(parsePaceSeconds('6:30'), 390, 'pace text is converted to seconds per kilometre');
+equal(parsePaceSeconds('120:00'), 7200, 'generated curves can represent very slow paces without becoming invalid');
+equal(parsePaceSeconds('3006990:00'), 180419400, 'generated curves are not limited to three-digit minute values');
+equal(parsePaceSeconds(`${Number.MAX_SAFE_INTEGER}:00`), null, 'unsafe pace values are rejected');
+const nicelyRounded = roundPaceCurvePoints([
+    { grade: 0, pace: '6:33' },
+    { grade: 10, pace: 'vam:603' },
+    { grade: 20, pace: '' },
+]);
+equal(nicelyRounded[0].pace, '6:35', 'pace values round to five-second increments');
+equal(nicelyRounded[1].pace, 'vam:605', 'VAM values round to five-metre increments');
+equal(nicelyRounded[2].pace, '', 'incomplete curve points are retained while rounding');
 equal(parsePaceSeconds('6:60'), null, 'invalid pace seconds are rejected');
 equal(parsePaceSeconds('0:00'), null, 'zero pace is rejected');
 equal(pacePointSeconds({ grade: 10, pace: 'vam:600' }), 600, 'uphill VAM is converted to equivalent pace');

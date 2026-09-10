@@ -7,6 +7,7 @@ import {
     type ActivityPoint,
 } from './activity.js';
 import type { RoutePoint } from './gpx.js';
+import type { GradientExposureAnalysis } from './gradientExposure.js';
 import { createPaceInterpolator, type ResolvedPaceCurvePoint, type RoutePacePrediction } from './pace.js';
 import { elevationGainLoss, type PrimaryTerrainSection } from './terrain.js';
 import { waypointSegmentGeometry, type SnappedWaypoint } from './waypoints.js';
@@ -48,6 +49,9 @@ export const routeAnalysisCsvHeader = [
     'actual_minus_predicted_s', 'match_median_error_m', 'match_p90_error_m',
     'match_within_150m_percent', 'match_ambiguous_samples', 'match_ambiguous_percent',
     'actual_elapsed_time_s',
+    'gradient_min_percent', 'gradient_max_percent', 'route_share_percent',
+    'predicted_time_share_percent', 'curve_point_influence_percent',
+    'time_added_per_one_percent_slower_s',
 ];
 
 export function buildRouteAnalysisCsv(options: {
@@ -64,6 +68,7 @@ export function buildRouteAnalysisCsv(options: {
     paceCurveName: string;
     paceCurveId: string;
     settings: Array<[name: string, value: CsvValue]>;
+    gradientExposure?: GradientExposureAnalysis | null;
     activity?: {
         points: ActivityPoint[];
         matchQuality: RouteMatchQuality | null;
@@ -71,7 +76,7 @@ export function buildRouteAnalysisCsv(options: {
 }): CsvValue[][] {
     const {
         route, profileElevations, sections, totals, prediction, sectionPredictionSeconds, predictedTotalSeconds, waypoints,
-        rawPacePoints, resolvedPacePoints, paceCurveName, paceCurveId, settings, activity,
+        rawPacePoints, resolvedPacePoints, paceCurveName, paceCurveId, settings, activity, gradientExposure,
     } = options;
     const rows: CsvValue[][] = [];
     const add = (cells: SparseCell[]) => rows.push(sparseRow(routeAnalysisCsvHeader.length, cells));
@@ -88,6 +93,18 @@ export function buildRouteAnalysisCsv(options: {
     ];
     exportSettings.forEach(([key, value]) => add([[0, 'setting'], [24, key], [25, value]]));
     rawPacePoints.forEach(point => add([[0, 'pace_curve_point'], [24, paceCurveName], [25, `grade=${point.grade}; value=${point.pace}`]]));
+    gradientExposure?.bands
+        .filter(band => band.distance > 0)
+        .forEach(band => add([
+            [0, 'gradient_exposure'], [4, band.label], [9, band.distance], [12, band.predictedSeconds],
+            [39, band.minimumGrade], [40, band.maximumGrade], [41, band.distanceSharePercent],
+            [42, band.predictedTimeSharePercent],
+        ]));
+    gradientExposure?.curvePointInfluence.forEach(influence => add([
+        [0, 'curve_point_influence'], [4, `Curve point ${influence.grade}%`], [11, influence.grade],
+        [13, influence.secondsPerKm], [43, influence.influencePercent],
+        [44, influence.addedSecondsPerOnePercentSlower],
+    ]));
     const activityPoints = activity?.points ?? [];
     const predictedAt = prediction
         ? (distance: number) => interpolateRouteCumulativeTime(route, prediction.cumulative, distance)

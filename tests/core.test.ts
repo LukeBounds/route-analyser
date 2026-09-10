@@ -38,13 +38,16 @@ equal(paceBackup?.curves[0].name, 'Steady', 'a valid named pace-curve backup is 
 equal(parsePaceCurveBackup({ format: 'route-analyser-pace-curves', version: 1, curves: [{ id: 'bad', name: '', points: [] }] }), null, 'a malformed pace-curve backup is rejected');
 
 equal(builtInPaceCurves.length, 4, 'all supplied pace curves are built in');
-equal(builtInPaceCurves.map(curve => curve.name).join('|'), '21h|24h|Optimistic|24h Slower Downhill', 'built-in pace curves retain their supplied names');
+equal(builtInPaceCurves.map(curve => curve.name).join('|'), '18h Bob|21h Bob|24h Bob|24h Bob Slower Downhill', 'built-in pace curves retain their supplied names');
 builtInPaceCurves.forEach(curve => {
-    equal(curve.points.length, 25, `${curve.name} has a value at every standard grade`);
+    equal(curve.points.length, 31, `${curve.name} has a value at every standard grade`);
     ok(curve.points.every(point => Number.isFinite(point.grade) && typeof point.pace === 'string' && point.pace.length > 0), `${curve.name} contains valid pace values`);
+    equal(curve.points[0].grade, -55, `${curve.name} extends to minus 55 percent`);
+    equal(curve.points.at(-1)?.grade, 55, `${curve.name} extends to plus 55 percent`);
 });
-equal(builtInPaceCurves[0].points.find(point => point.grade === 0)?.pace, '7:00', 'the 21h zero-grade pace matches the supplied curve');
-equal(builtInPaceCurves[3].points.find(point => point.grade === -40)?.pace, 'vam:825', 'the slower-downhill curve matches the supplied descent VAM');
+equal(builtInPaceCurves[0].points.find(point => point.grade === 0)?.pace, '6:00', 'the 18h Bob zero-grade pace matches the supplied curve');
+equal(builtInPaceCurves[1].points.find(point => point.grade === -40)?.pace, 'vam:1675', 'the 21h Bob curve matches the supplied descent VAM');
+equal(builtInPaceCurves[3].points.find(point => point.grade === -40)?.pace, 'vam:900', 'the Bob slower-downhill curve matches the supplied descent VAM');
 
 const nearby = joinNearbySegments([
     [{ lat: 51, lon: 0 }, { lat: 51.001, lon: 0 }],

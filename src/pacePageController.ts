@@ -1,4 +1,5 @@
 import { builtInPaceCurves } from './builtInPaceCurves';
+import { BrowserStorageAdapter } from './browserStorage';
 import { maximumValue } from './charts/canvas';
 import {
     drawCurveComparisonChart,
@@ -18,13 +19,17 @@ import {
     pacePointSeconds,
     parseValidatedPaceCurveBackup,
     resolvePaceCurve,
+    roundPaceCurvePoints,
 } from './pace';
+import type { PaceGenerationRoute } from './paceGenerator';
+import { createPaceGeneratorController } from './paceGeneratorController';
 import { PaceLibraryModel, parsePaceLibraryStorage } from './paceLibrary';
 import { pacePageTemplate } from './templates';
 
 const paceLibraryStorage = 'route-analyser.pace-curves';
 const selectedPaceCurveStorage = 'route-analyser.selected-pace-curve';
 const paceChartPreferencesStorage = 'route-analyser.pace-chart-preferences';
+const niceCurveValuesStorage = 'route-analyser.nice-curve-values';
 const comparisonColors = ['#2563eb', '#c84735', '#31805a', '#8b5cf6', '#d97706', '#0891b2', '#db2777', '#4f46e5', '#65a30d', '#b45309'];
 
 const createPaceCurveId = () => typeof crypto.randomUUID === 'function'
@@ -37,33 +42,21 @@ const createBuiltInPaceLibrary = (): StoredPaceCurve[] => builtInPaceCurves.map(
     points: clonePacePoints(curve.points),
 }));
 
-function loadPaceLibrary() {
-    try {
-        const stored = JSON.parse(localStorage.getItem(paceLibraryStorage) || 'null');
-        const library = parsePaceLibraryStorage(stored);
-        return library ?? { curves: createBuiltInPaceLibrary(), migrated: false };
-    }
-    catch {
-        return { curves: createBuiltInPaceLibrary(), migrated: false };
-    }
+function loadPaceLibrary(storage: BrowserStorageAdapter) {
+    const library = parsePaceLibraryStorage(storage.readJson(paceLibraryStorage));
+    return library ?? { curves: createBuiltInPaceLibrary(), migrated: false };
 }
 
-function loadSelectedCurveId(fallback: string | undefined) {
-    try {
-        return localStorage.getItem(selectedPaceCurveStorage) || fallback;
-    }
-    catch {
-        return fallback;
-    }
+function loadSelectedCurveId(storage: BrowserStorageAdapter, fallback: string | undefined) {
+    return storage.readText(selectedPaceCurveStorage) || fallback;
 }
 
-function loadChartPreferences() {
-    try {
-        return JSON.parse(localStorage.getItem(paceChartPreferencesStorage) || 'null');
-    }
-    catch {
-        return null;
-    }
+function loadChartPreferences(storage: BrowserStorageAdapter) {
+    return storage.readJson(paceChartPreferencesStorage);
+}
+
+function loadNiceCurveValues(storage: BrowserStorageAdapter) {
+    return storage.readText(niceCurveValuesStorage) === 'true';
 }
 
 interface ComparedPaceCurve {
@@ -79,15 +72,17 @@ export interface PacePageController {
     readonly resolvedPoints: Array<PaceCurvePoint & { seconds: number }>;
     readonly selectedCurveId: string;
     bindAnalysisSelect(select: HTMLSelectElement, onSelectionChanged: () => void): void;
+    setGenerationRoute(route: PaceGenerationRoute | null): void;
     redraw(): void;
 }
 
 export function createPacePageController(root: HTMLElement): PacePageController {
-    const loadedLibrary = loadPaceLibrary();
+    const storage = new BrowserStorageAdapter(localStorage);
+    const loadedLibrary = loadPaceLibrary(storage);
     const paceState = new PaceLibraryModel(
         loadedLibrary.curves,
-        loadSelectedCurveId(loadedLibrary.selectedCurveId),
-        loadChartPreferences(),
+        loadSelectedCurveId(storage, loadedLibrary.selectedCurveId),
+        loadChartPreferences(storage),
         createPaceCurveId,
     );
     const paceCurves = paceState.curves;
@@ -113,9 +108,11 @@ export function createPacePageController(root: HTMLElement): PacePageController 
     const newPaceCurve = panel.querySelector<HTMLButtonElement>('#new-pace-curve')!;
     const duplicatePaceCurve = panel.querySelector<HTMLButtonElement>('#duplicate-pace-curve')!;
     const deletePaceCurve = panel.querySelector<HTMLButtonElement>('#delete-pace-curve')!;
+    const resetPaceCurves = panel.querySelector<HTMLButtonElement>('#reset-pace-curves')!;
     const exportPaceCurves = panel.querySelector<HTMLButtonElement>('#export-pace-curves')!;
     const importPaceCurves = panel.querySelector<HTMLInputElement>('#import-pace-curves')!;
     const paceLibraryStatus = panel.querySelector<HTMLElement>('#pace-library-status')!;
+    const roundCurrentCurve = panel.querySelector<HTMLButtonElement>('#round-current-curve')!;
     const comparisonList = panel.querySelector<HTMLElement>('#curve-comparison-list')!;
     const chartLegend = panel.querySelector<HTMLElement>('#curve-chart-legend')!;
     const showPaceCurves = panel.querySelector<HTMLInputElement>('#show-pace-curves')!;
@@ -135,32 +132,66 @@ export function createPacePageController(root: HTMLElement): PacePageController 
         .filter(curve => preferences.curveIds.includes(curve.id))
         .map(curve => ({ curve, color: paceCurveColor(curve.id), points: resolvePaceCurve(curve.points) }));
     const comparisonChartSeries = (): CurveComparisonSeries[] => comparedPaceCurves().map(item => ({
-        id: item.curve.id,
-        name: item.curve.name,
-        color: item.color,
-        points: item.points,
-    }));
+            id: item.curve.id,
+            name: item.curve.name,
+            color: item.color,
+            points: item.points,
+        }));
 
     const savePace = () => {
         pacePoints = paceState.replaceActivePoints(pacePoints);
-        try {
-            localStorage.setItem(paceLibraryStorage, JSON.stringify(paceState.storageState()));
-            localStorage.setItem(selectedPaceCurveStorage, paceState.selectedCurveId);
-            return true;
-        }
-        catch {
+        const saved = storage.write([
+            [paceLibraryStorage, JSON.stringify(paceState.storageState())],
+            [selectedPaceCurveStorage, paceState.selectedCurveId],
+            [paceChartPreferencesStorage, JSON.stringify(preferences)],
+        ]);
+        if (!saved)
             paceLibraryStatus.textContent = 'These changes could not be saved in browser storage. Export a backup before leaving this page.';
-            return false;
-        }
+        return saved;
     };
     const saveChartPreferences = () => {
-        try {
-            localStorage.setItem(paceChartPreferencesStorage, JSON.stringify(preferences));
-        }
-        catch {
+        const saved = storage.write([[paceChartPreferencesStorage, JSON.stringify(preferences)]]);
+        if (!saved)
             paceLibraryStatus.textContent = 'Chart comparison preferences could not be saved in this browser.';
-        }
+        return saved;
     };
+    const librarySnapshot = () => ({
+        state: paceState.storageState(),
+        preferences: { ...preferences, curveIds: [...preferences.curveIds] },
+    });
+    const restoreLibrarySnapshot = (snapshot: ReturnType<typeof librarySnapshot>) => {
+        paceState.replaceAllCurves(snapshot.state.curves, snapshot.state.selectedCurveId, snapshot.preferences);
+        pacePoints = paceState.points;
+    };
+    const paceGenerator = createPaceGeneratorController({
+        panel,
+        getCurves: () => paceCurves,
+        getSelectedCurveId: () => paceState.selectedCurveId,
+        curveColor: paceCurveColor,
+        initialRoundToNiceValues: loadNiceCurveValues(storage),
+        saveRoundingPreference: enabled => storage.write([[niceCurveValuesStorage, String(enabled)]]),
+        saveGeneratedCurve: (requestedName, points) => {
+            const snapshot = librarySnapshot();
+            const created = paceState.createCurve(requestedName, points);
+            pacePoints = paceState.points;
+            if (!savePace()) {
+                restoreLibrarySnapshot(snapshot);
+                syncCurveControls();
+                renderPace();
+                redraw();
+                return {
+                    ok: false,
+                    error: 'The generated curve could not be saved in browser storage. The preview has been kept so you can try again.',
+                };
+            }
+            syncCurveControls();
+            renderPace();
+            redraw();
+            onAnalysisSelectionChanged();
+            paceLibraryStatus.textContent = `Generated curve saved as ${created.name}.`;
+            return { ok: true, name: created.name };
+        },
+    });
 
     function renderPace() {
         paceRows.innerHTML = pacePoints.map((point, index) => {
@@ -190,7 +221,8 @@ export function createPacePageController(root: HTMLElement): PacePageController 
         const selected = new Set(preferences.curveIds);
         comparisonList.innerHTML = paceCurves.map(curve => `<label><input type="checkbox" data-compare-curve="${escapeHtml(curve.id)}" ${selected.has(curve.id) ? 'checked' : ''}><span class="curve-swatch" style="--curve-color:${paceCurveColor(curve.id)}"></span>${escapeHtml(curve.name)}</label>`).join('');
         const visible = comparedPaceCurves();
-        chartLegend.innerHTML = visible.map(item => `<span><i style="--curve-color:${item.color}"></i>${escapeHtml(item.curve.name)}</span>`).join('') + (preferences.showVam ? '<span class="line-style"><i></i>Solid: pace/speed</span><span class="line-style dashed"><i></i>Dashed: VAM</span>' : '');
+        chartLegend.innerHTML = visible.map(item => `<span><i style="--curve-color:${item.color}"></i>${escapeHtml(item.curve.name)}</span>`).join('')
+            + (preferences.showVam ? '<span class="line-style"><i></i>Solid: pace/speed</span><span class="line-style dashed"><i></i>Dashed: VAM</span>' : '');
         showPaceCurves.checked = preferences.showPace;
         showSpeedCurves.checked = preferences.showSpeed;
         showVamCurves.checked = preferences.showVam;
@@ -226,10 +258,14 @@ export function createPacePageController(root: HTMLElement): PacePageController 
             formatPace,
         });
     }
+    function clearPreviewWhenEditingSource() {
+        paceGenerator.clearPreviewForSource(paceState.selectedCurveId);
+    }
     function redraw() {
         drawPaceComparison();
         drawSpeedComparison();
         renderComparisonControls();
+        paceGenerator.redraw();
     }
     function syncCurveControls() {
         const options = paceCurves.map(curve => `<option value="${escapeHtml(curve.id)}">${escapeHtml(curve.name)}</option>`).join('');
@@ -242,6 +278,7 @@ export function createPacePageController(root: HTMLElement): PacePageController 
         paceCurveName.value = paceState.activeCurve.name;
         deletePaceCurve.disabled = paceCurves.length <= 1;
         renderComparisonControls();
+        paceGenerator.syncCurves();
     }
     function selectPaceCurve(id: string) {
         if (id === paceState.selectedCurveId || !paceCurves.some(curve => curve.id === id))
@@ -265,6 +302,7 @@ export function createPacePageController(root: HTMLElement): PacePageController 
     paceRows.addEventListener('input', event => {
         const input = event.target as HTMLInputElement;
         const index = Number(input.dataset.grade ?? input.dataset.pace);
+        clearPreviewWhenEditingSource();
         if (input.dataset.grade !== undefined)
             pacePoints[index].grade = Number(input.value);
         else if (input.dataset.pace !== undefined) {
@@ -279,6 +317,7 @@ export function createPacePageController(root: HTMLElement): PacePageController 
         const input = event.target as HTMLInputElement;
         const index = Number(input.dataset.mode);
         if (input.dataset.mode !== undefined) {
+            clearPreviewWhenEditingSource();
             const value = pacePointInput(pacePoints[index]);
             pacePoints[index].pace = input.value === 'vam' ? `vam:${value}` : value;
             savePace();
@@ -291,12 +330,14 @@ export function createPacePageController(root: HTMLElement): PacePageController 
         const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
         if (!button || button.dataset.remove === undefined)
             return;
+        clearPreviewWhenEditingSource();
         pacePoints.splice(Number(button.dataset.remove), 1);
         savePace();
         renderPace();
         redraw();
     });
     addPace.onclick = () => {
+        clearPreviewWhenEditingSource();
         pacePoints.push({ grade: maximumValue(pacePoints, point => point.grade, 0) + 5, pace: '' });
         savePace();
         renderPace();
@@ -368,6 +409,7 @@ export function createPacePageController(root: HTMLElement): PacePageController 
                 option.textContent = name;
         });
         renderComparisonControls();
+        paceGenerator.syncCurves();
         if (savePace())
             paceLibraryStatus.textContent = 'Curve name saved.';
     };
@@ -379,16 +421,26 @@ export function createPacePageController(root: HTMLElement): PacePageController 
             return;
         }
         const name = paceState.renameActive(requested, true)!;
-        savePace();
+        if (!savePace()) {
+            paceLibraryStatus.textContent = 'The curve name could not be saved in browser storage.';
+            return;
+        }
         syncCurveControls();
         paceLibraryStatus.textContent = `Saved as ${name}.`;
     };
     newPaceCurve.onclick = () => {
         const template = builtInPaceCurves.find(curve => curve.key === builtInPaceSelect.value) ?? builtInPaceCurves[0];
+        const snapshot = librarySnapshot();
         paceState.createCurve('New pace curve', template.points);
-        saveChartPreferences();
         pacePoints = paceState.points;
-        savePace();
+        if (!savePace()) {
+            restoreLibrarySnapshot(snapshot);
+            syncCurveControls();
+            renderPace();
+            redraw();
+            paceLibraryStatus.textContent = 'The new curve could not be saved, so your previous curve library has been restored.';
+            return;
+        }
         syncCurveControls();
         renderPace();
         redraw();
@@ -397,10 +449,17 @@ export function createPacePageController(root: HTMLElement): PacePageController 
         paceLibraryStatus.textContent = `New curve created from the ${template.name} built-in values.`;
     };
     duplicatePaceCurve.onclick = () => {
+        const snapshot = librarySnapshot();
         paceState.duplicateActive();
-        saveChartPreferences();
         pacePoints = paceState.points;
-        savePace();
+        if (!savePace()) {
+            restoreLibrarySnapshot(snapshot);
+            syncCurveControls();
+            renderPace();
+            redraw();
+            paceLibraryStatus.textContent = 'The duplicate could not be saved, so your previous curve library has been restored.';
+            return;
+        }
         syncCurveControls();
         renderPace();
         redraw();
@@ -414,14 +473,59 @@ export function createPacePageController(root: HTMLElement): PacePageController 
         const deleting = paceState.activeCurve;
         if (!window.confirm(`Delete “${deleting.name}”?`))
             return;
+        clearPreviewWhenEditingSource();
+        const snapshot = librarySnapshot();
         paceState.deleteActive();
-        saveChartPreferences();
         pacePoints = paceState.points;
-        savePace();
+        if (!savePace()) {
+            restoreLibrarySnapshot(snapshot);
+            syncCurveControls();
+            renderPace();
+            redraw();
+            paceLibraryStatus.textContent = 'The curve could not be deleted from browser storage, so it has been restored.';
+            return;
+        }
         syncCurveControls();
         renderPace();
         redraw();
         paceLibraryStatus.textContent = `Deleted ${deleting.name}.`;
+    };
+    resetPaceCurves.onclick = () => {
+        if (!window.confirm('Reset all pace curves? This will permanently delete every saved curve in this browser and replace them with the four built-in defaults. Export a backup first if you may want them back.'))
+            return;
+        const snapshot = librarySnapshot();
+        paceState.replaceAllCurves(createBuiltInPaceLibrary());
+        pacePoints = paceState.points;
+        if (!savePace()) {
+            restoreLibrarySnapshot(snapshot);
+            syncCurveControls();
+            renderPace();
+            redraw();
+            paceLibraryStatus.textContent = 'The reset could not be saved, so your previous curve library has been restored.';
+            return;
+        }
+        paceGenerator.resetCurves();
+        syncCurveControls();
+        renderPace();
+        redraw();
+        onAnalysisSelectionChanged();
+        paceLibraryStatus.textContent = 'All saved curves were deleted and replaced with the four built-in defaults.';
+    };
+    roundCurrentCurve.onclick = () => {
+        const snapshot = librarySnapshot();
+        pacePoints = roundPaceCurvePoints(pacePoints);
+        if (!savePace()) {
+            restoreLibrarySnapshot(snapshot);
+            renderPace();
+            redraw();
+            paceLibraryStatus.textContent = 'The rounded values could not be saved, so the curve has been restored.';
+            return;
+        }
+        clearPreviewWhenEditingSource();
+        renderPace();
+        redraw();
+        onAnalysisSelectionChanged();
+        paceLibraryStatus.textContent = `${paceState.activeCurve.name} now uses 5-second pace and 5 m/h VAM increments.`;
     };
     exportPaceCurves.onclick = () => {
         savePace();
@@ -443,10 +547,16 @@ export function createPacePageController(root: HTMLElement): PacePageController 
             const value = parseValidatedPaceCurveBackup(JSON.parse(await file.text()));
             if (!value)
                 throw Error('This is not a valid Route Analyser pace-curve backup.');
+            const snapshot = librarySnapshot();
             const imported = paceState.importBackup(value);
-            saveChartPreferences();
             pacePoints = paceState.points;
-            savePace();
+            if (!savePace()) {
+                restoreLibrarySnapshot(snapshot);
+                syncCurveControls();
+                renderPace();
+                redraw();
+                throw Error('The imported curves could not be saved, so your previous curve library has been restored.');
+            }
             syncCurveControls();
             renderPace();
             redraw();
@@ -461,8 +571,16 @@ export function createPacePageController(root: HTMLElement): PacePageController 
     };
     loadBuiltInPace.onclick = () => {
         const template = builtInPaceCurves.find(curve => curve.key === builtInPaceSelect.value) ?? builtInPaceCurves[0];
+        clearPreviewWhenEditingSource();
+        const snapshot = librarySnapshot();
         pacePoints = clonePacePoints(template.points);
-        savePace();
+        if (!savePace()) {
+            restoreLibrarySnapshot(snapshot);
+            renderPace();
+            redraw();
+            paceLibraryStatus.textContent = 'The built-in values could not be saved, so the curve has been restored.';
+            return;
+        }
         renderPace();
         redraw();
         paceLibraryStatus.textContent = `Loaded the ${template.name} built-in values into ${paceState.activeCurve.name}.`;
@@ -486,6 +604,9 @@ export function createPacePageController(root: HTMLElement): PacePageController 
             onAnalysisSelectionChanged = onSelectionChanged;
             analysisCurveSelect.onchange = () => selectPaceCurve(analysisCurveSelect!.value);
             syncCurveControls();
+        },
+        setGenerationRoute(route) {
+            paceGenerator.setRoute(route);
         },
         redraw,
     };
